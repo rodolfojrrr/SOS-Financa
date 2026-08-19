@@ -17,8 +17,6 @@ use uuid::Uuid;
 type HmacSha256 = Hmac<Sha256>;
 
 const PROTOCOL: &str = "SOSFINANCA/1";
-const FIXED_PORT: u16 = 45454;
-const FIXED_TOKEN: &str = "534F5346494E414E";
 const MAX_SYNC_BYTES: usize = 128 * 1024 * 1024;
 const SESSION_SECONDS: u64 = 600;
 
@@ -28,18 +26,19 @@ struct Session {
     stop: Arc<AtomicBool>,
 }
 
-#[derive(Clone)]
-struct PreparedPayload {
-    encrypted: Arc<Vec<u8>>,
-    nonce_hex: String,
-    hash_hex: String,
-    plain_len: usize,
-}
-
 static SESSION: OnceLock<Mutex<Option<Session>>> = OnceLock::new();
 
 fn session_slot() -> &'static Mutex<Option<Session>> {
     SESSION.get_or_init(|| Mutex::new(None))
+}
+
+fn clean_token(value: &str) -> String {
+    value.chars().filter(|c| c.is_ascii_hexdigit()).collect::<String>().to_uppercase()
+}
+
+fn make_token() -> String {
+    let raw = Uuid::new_v4().simple().to_string().to_uppercase();
+    raw[..16].to_string()
 }
 
 fn format_token(token: &str) -> String {
@@ -64,11 +63,6 @@ fn from_hex(value: &str) -> Result<Vec<u8>, String> {
         out.push(u8::from_str_radix(part, 16).map_err(|_| "Código hexadecimal inválido")?);
     }
     Ok(out)
-}
-
-
-fn clean_token(value: &str) -> String {
-    value.chars().filter(|c| c.is_ascii_hexdigit()).collect::<String>().to_uppercase()
 }
 
 fn auth_digest(token: &str, challenge: &[u8]) -> Result<Vec<u8>, String> {
@@ -127,36 +121,9 @@ fn local_ip() -> String {
     "127.0.0.1".into()
 }
 
-fn prepare_payload(plain: Vec<u8>) -> Result<PreparedPayload, String> {
-    if plain.is_empty() {
-        return Err("O snapshot do banco ficou vazio. Nada foi enviado.".into());
-    }
-    if plain.len() > MAX_SYNC_BYTES {
-        return Err("O banco excede o limite de 128 MB para sincronização.".into());
-    }
-
-    let plain_len = plain.len();
-    let hash_hex = hex(&Sha256::digest(&plain));
-    let nonce_uuid = Uuid::new_v4();
-    let nonce_bytes = &nonce_uuid.as_bytes()[..12];
-    let nonce_hex = hex(nonce_bytes);
-    let key_bytes = crypto_key(FIXED_TOKEN);
-    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key_bytes));
-    let encrypted = cipher
-        .encrypt(Nonce::from_slice(nonce_bytes), plain.as_ref())
-        .map_err(|_| "Não foi possível preparar a criptografia do banco para o celular.".to_string())?;
-
-    Ok(PreparedPayload {
-        encrypted: Arc::new(encrypted),
-        nonce_hex,
-        hash_hex,
-        plain_len,
-    })
-}
-
-fn handle_client(mut stream: TcpStream, payload: &PreparedPayload) -> Result<bool, String> {
-    stream.set_read_timeout(Some(Duration::from_secs(30))).map_err(|e| e.to_string())?;
-    stream.set_write_timeout(Some(Duration::from_secs(120))).map_err(|e| e.to_string())?;
+fn handle_client(mut stream: TcpStream, token: &str, plain: &[u8]) -> Result<bool, String> {
+    stream.set_read_timeout(Some(Duration::from_secs(20))).map_err(|e| e.to_string())?;
+    stream.set_write_timeout(Some(Duration::from_secs(60))).map_err(|e| e.to_string())?;
     let _ = stream.set_nodelay(true);
 
     let challenge_uuid = Uuid::new_v4();
@@ -166,12 +133,12 @@ fn handle_client(mut stream: TcpStream, payload: &PreparedPayload) -> Result<boo
 
     let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
     let mut auth_line = String::new();
-    let auth_bytes = reader.read_line(&mut auth_line).map_err(|e| format!("Falha ao receber autenticação do celular: {e}"))?;
+    let auth_bytes = reader.read_line(&mut auth_line).map_err(|e| e.to_string())?;
     if auth_bytes == 0 {
         return Ok(false);
     }
-
-    let Some(auth_hex) = auth_line.trim().strip_prefix("AUTH ") else {
+    let auth_line = auth_line.trim();
+    let Some(auth_hex) = auth_line.strip_prefix("AUTH ") else {
         send_error(&mut stream, "autenticação inválida");
         return Ok(false);
     };
@@ -182,21 +149,37 @@ fn handle_client(mut stream: TcpStream, payload: &PreparedPayload) -> Result<boo
             return Ok(false);
         }
     };
-    if !auth_matches(FIXED_TOKEN, challenge, &received)? {
-        send_error(&mut stream, "código incorreto; use o código fixo mostrado no PC");
+    if !auth_matches(token, challenge, &received)? {
+        send_error(&mut stream, "chave incorreta");
         return Ok(false);
     }
 
-    let header = format!(
-        "DATA {} {} {}",
-        payload.encrypted.len(),
-        payload.nonce_hex,
-        payload.hash_hex
-    );
-    writeln!(stream, "{header}").map_err(|e| format!("Falha ao enviar cabeçalho para o celular: {e}"))?;
-    stream.flush().map_err(|e| format!("Falha ao confirmar cabeçalho para o celular: {e}"))?;
-    stream.write_all(payload.encrypted.as_slice()).map_err(|e| format!("Falha ao enviar banco para o celular: {e}"))?;
-    stream.flush().map_err(|e| format!("Falha ao concluir envio para o celular: {e}"))?;
+    if plain.is_empty() {
+        send_error(&mut stream, "o snapshot do banco está vazio");
+        return Ok(false);
+    }
+    if plain.len() > MAX_SYNC_BYTES {
+        send_error(&mut stream, "o banco excede o limite de 128 MB");
+        return Ok(false);
+    }
+
+    let plain_hash = Sha256::digest(plain);
+    let nonce_uuid = Uuid::new_v4();
+    let nonce_bytes = &nonce_uuid.as_bytes()[..12];
+    let key_bytes = crypto_key(token);
+    let cipher = ChaCha20Poly1305::new(Key::from_slice(&key_bytes));
+    let encrypted = match cipher.encrypt(Nonce::from_slice(nonce_bytes), plain) {
+        Ok(value) => value,
+        Err(_) => {
+            send_error(&mut stream, "falha ao proteger os dados da sincronização");
+            return Ok(false);
+        }
+    };
+
+    writeln!(stream, "DATA {} {} {}", encrypted.len(), hex(nonce_bytes), hex(&plain_hash)).map_err(|e| e.to_string())?;
+    stream.flush().map_err(|e| e.to_string())?;
+    stream.write_all(&encrypted).map_err(|e| e.to_string())?;
+    stream.flush().map_err(|e| e.to_string())?;
     Ok(true)
 }
 
@@ -204,8 +187,7 @@ pub fn platform() -> Value {
     json!({
         "platform": if cfg!(target_os = "android") { "android" } else if cfg!(target_os = "windows") { "windows" } else { "desktop" },
         "canSend": !cfg!(target_os = "android"),
-        "canReceive": cfg!(target_os = "android"),
-        "port": FIXED_PORT
+        "canReceive": cfg!(target_os = "android")
     })
 }
 
@@ -219,12 +201,18 @@ pub fn start_server(app: &AppHandle) -> Result<Value, String> {
     let snapshot = db::create_sync_snapshot(app)?;
     let plain = fs::read(&snapshot).map_err(|e| format!("Não foi possível preparar o banco para sincronização: {e}"))?;
     let _ = fs::remove_file(&snapshot);
-    let payload = Arc::new(prepare_payload(plain)?);
+    if plain.is_empty() {
+        return Err("O snapshot do banco ficou vazio. Nada foi enviado.".into());
+    }
+    if plain.len() > MAX_SYNC_BYTES {
+        return Err("O banco excede o limite de 128 MB para sincronização.".into());
+    }
+    let plain = Arc::new(plain);
 
-    let listener = TcpListener::bind(("0.0.0.0", FIXED_PORT)).map_err(|e| {
-        format!("Não foi possível abrir a porta fixa {FIXED_PORT}. Feche outra sessão do SOS Finança e confira o Firewall do Windows. Detalhe: {e}")
-    })?;
+    let token = make_token();
+    let listener = TcpListener::bind(("0.0.0.0", 0)).map_err(|e| format!("Não foi possível abrir a sincronização na rede: {e}"))?;
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
+    let port = listener.local_addr().map_err(|e| e.to_string())?.port();
     let ip = local_ip();
     if ip == "127.0.0.1" {
         return Err("Não consegui identificar o IP local do PC. Confirme que o PC está conectado ao Wi-Fi e tente novamente.".into());
@@ -232,7 +220,8 @@ pub fn start_server(app: &AppHandle) -> Result<Value, String> {
 
     let stop = Arc::new(AtomicBool::new(false));
     let stop_thread = stop.clone();
-    let payload_thread = payload.clone();
+    let token_thread = token.clone();
+    let plain_thread = plain.clone();
     let session_id = Uuid::new_v4().simple().to_string();
     let session_id_thread = session_id.clone();
 
@@ -245,13 +234,13 @@ pub fn start_server(app: &AppHandle) -> Result<Value, String> {
         while !stop_thread.load(Ordering::Relaxed) && started.elapsed() < Duration::from_secs(SESSION_SECONDS) {
             match listener.accept() {
                 Ok((stream, _)) => {
-                    match handle_client(stream, payload_thread.as_ref()) {
+                    match handle_client(stream, &token_thread, plain_thread.as_slice()) {
                         Ok(true) => break,
                         Ok(false) => {}
                         Err(_) => {}
                     }
                 }
-                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(100)),
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => thread::sleep(Duration::from_millis(150)),
                 Err(_) => break,
             }
         }
@@ -264,11 +253,11 @@ pub fn start_server(app: &AppHandle) -> Result<Value, String> {
 
     Ok(json!({
         "ip": ip,
-        "port": FIXED_PORT,
-        "code": format_token(FIXED_TOKEN),
+        "port": port,
+        "code": format_token(&token),
         "expiresInSeconds": SESSION_SECONDS,
-        "bytesReady": payload.plain_len,
-        "warning": "Porta e código são fixos para compatibilidade com o APK atual. Use somente em uma rede Wi-Fi privada e conhecida."
+        "bytesReady": plain.len(),
+        "warning": "Use somente em uma rede Wi-Fi privada e conhecida."
     }))
 }
 

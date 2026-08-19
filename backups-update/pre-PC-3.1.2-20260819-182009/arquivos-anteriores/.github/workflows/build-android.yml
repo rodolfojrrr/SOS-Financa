@@ -2,6 +2,8 @@ name: Build Android
 
 'on':
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
@@ -79,7 +81,7 @@ jobs:
       - name: Inicializar projeto Android
         run: cargo tauri android init --ci --skip-targets-install
 
-      - name: Configurar rede local Android
+      - name: Permitir sincronização na rede local
         run: python3 scripts/configure_android_network.py
 
       - name: Preparar assinatura Release quando configurada
