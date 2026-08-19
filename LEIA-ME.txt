@@ -1,33 +1,39 @@
-FIX1: este pacote NAO exige Python instalado no PC. Os testes Python rodam no GitHub Actions.
+SOS FINANCA 3.1.2 - CORRECAO SOMENTE PC
 
-SOS FINANÇA 3.1.0 SYNC - ATUALIZAÇÃO INCREMENTAL
+OBJETIVO
+- Atualizar somente o Windows.
+- Nao reinstalar nem atualizar o APK atual.
+- Corrigir o servidor PC -> celular.
+- Usar sempre a porta TCP 45454.
+- Parar de gerar chave temporaria.
 
-O QUE ESTE PACOTE FAZ
-- Atualiza somente os arquivos alterados do projeto SOS-Financa.
-- NÃO contém banco de dados.
-- NÃO apaga nem substitui sos_financa.db.
-- Cria backup dos arquivos-fonte que serão alterados.
-- Tenta criar também uma cópia de segurança do banco local encontrado no Windows.
-- Pode fazer commit e push automaticamente para o GitHub.
+IMPORTANTE SOBRE O CELULAR ATUAL
+O APK que ja esta instalado ainda possui os campos Porta e Chave porque essa interface esta dentro do APK.
+Sem atualizar o celular, nao existe como remover visualmente esses campos.
+Para evitar reinstalar o APK, esta versao do PC usa valores FIXOS:
 
-NOVIDADE
-- Sincronização PC -> celular pela mesma rede Wi-Fi.
-- O PC é a origem.
-- O celular cria backup automático antes de substituir o banco.
-- Sessão temporária de 10 minutos.
-- Transferência autenticada, criptografada e verificada antes da importação.
+Porta: 45454
+Codigo: 534F-5346-494E-414E
 
-COMO USAR
-1. Feche o SOS Finança no PC.
-2. Extraia este ZIP inteiro.
-3. Execute ATUALIZAR_SOS_FINANCA.bat.
-4. Selecione a pasta do repositório SOS-Financa quando solicitado.
-5. Deixe o atualizador aplicar os arquivos.
-6. Quando ele perguntar se deseja subir para o GitHub, responda S.
-7. Aguarde os workflows Build Windows e Build Android.
-8. Atualize o Windows com o novo instalador e o celular com o novo APK.
+Esses dois valores nao mudam. Voce so usa o IP que o PC mostrar.
 
-IMPORTANTE
-O SOS Finança é Tauri: os arquivos da interface e do Rust são compilados dentro do executável.
-Por isso este pacote aplica a atualização ao repositório e o GitHub gera os binários atualizados.
-O banco financeiro fica fora do repositório e é preservado.
+COMO ATUALIZAR
+1. Extraia este ZIP.
+2. Execute ATUALIZAR_SOMENTE_PC.bat.
+3. O script localiza o repositorio e envia a alteracao para o GitHub.
+4. No GitHub, somente Build Windows deve iniciar automaticamente.
+5. Baixe o artifact SOS-Financa-Windows.
+6. Instale a nova versao no PC.
+7. Nao mexa no APK do celular.
+
+SINCRONIZACAO
+No PC: Configuracoes -> Sincronizacao -> Enviar dados deste PC.
+No celular atual informe:
+- IP: o mostrado no PC
+- Porta: 45454
+- Chave: 534F-5346-494E-414E
+
+Se o Windows bloquear a porta, execute LIBERAR_PORTA_45454.bat como administrador.
+
+BANCO
+Este pacote nao contem sos_financa.db e nao substitui seu banco local.
