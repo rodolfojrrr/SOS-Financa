@@ -1,0 +1,33 @@
+FIX1: este pacote NAO exige Python instalado no PC. Os testes Python rodam no GitHub Actions.
+
+SOS FINANÇA 3.1.0 SYNC - ATUALIZAÇÃO INCREMENTAL
+
+O QUE ESTE PACOTE FAZ
+- Atualiza somente os arquivos alterados do projeto SOS-Financa.
+- NÃO contém banco de dados.
+- NÃO apaga nem substitui sos_financa.db.
+- Cria backup dos arquivos-fonte que serão alterados.
+- Tenta criar também uma cópia de segurança do banco local encontrado no Windows.
+- Pode fazer commit e push automaticamente para o GitHub.
+
+NOVIDADE
+- Sincronização PC -> celular pela mesma rede Wi-Fi.
+- O PC é a origem.
+- O celular cria backup automático antes de substituir o banco.
+- Sessão temporária de 10 minutos.
+- Transferência autenticada, criptografada e verificada antes da importação.
+
+COMO USAR
+1. Feche o SOS Finança no PC.
+2. Extraia este ZIP inteiro.
+3. Execute ATUALIZAR_SOS_FINANCA.bat.
+4. Selecione a pasta do repositório SOS-Financa quando solicitado.
+5. Deixe o atualizador aplicar os arquivos.
+6. Quando ele perguntar se deseja subir para o GitHub, responda S.
+7. Aguarde os workflows Build Windows e Build Android.
+8. Atualize o Windows com o novo instalador e o celular com o novo APK.
+
+IMPORTANTE
+O SOS Finança é Tauri: os arquivos da interface e do Rust são compilados dentro do executável.
+Por isso este pacote aplica a atualização ao repositório e o GitHub gera os binários atualizados.
+O banco financeiro fica fora do repositório e é preservado.

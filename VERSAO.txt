@@ -1,0 +1,2 @@
+3.1.0 SYNC FIX1
+Correção do atualizador: não exige Python local.
