@@ -2,7 +2,7 @@
 setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
-title SOS Financa - Testes da V1.0.1
+title SOS Financa - Testes da V2.0.0
 
 where node >nul 2>&1
 if errorlevel 1 goto node_missing
@@ -22,7 +22,7 @@ if errorlevel 1 goto failed
 
 echo.
 echo ==============================================================
-echo 40 TESTES AUTOMATICOS PASSARAM.
+echo 54 TESTES AUTOMATICOS PASSARAM.
 echo ==============================================================
 echo.
 echo Os testes estruturais do SQLite e de interface usados na revisao

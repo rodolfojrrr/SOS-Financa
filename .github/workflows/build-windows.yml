@@ -14,6 +14,9 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 'lts/*'
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
       - uses: dtolnay/rust-toolchain@stable
       - uses: swatinem/rust-cache@v2
         with:
@@ -24,6 +27,8 @@ jobs:
         run: node tests/finance.test.js
       - name: Testar armazenamento da prévia
         run: node tests/storage.test.js
+      - name: Testar estrutura SQLite
+        run: python tests/schema_test.py
       - name: Gerar instalador
         run: cargo tauri build
       - name: Publicar instalador NSIS

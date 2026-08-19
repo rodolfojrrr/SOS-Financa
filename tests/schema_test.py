@@ -47,6 +47,27 @@ except sqlite3.IntegrityError:
 print('OK 05 - chaves estrangeiras protegem vínculos financeiros inválidos')
 
 assert 'ALTER TABLE debt_payments ADD COLUMN installment_month TEXT' in text
-print('OK 06 - existe migração para instalações criadas antes da revisão')
+print('OK 06 - existe migração para mês de referência em instalações antigas')
 
-print('\nTodos os 6 testes estruturais do SQLite passaram.')
+commitment_columns = {row[1] for row in conn.execute('PRAGMA table_info(commitment_payments)')}
+assert 'expected_amount_cents' in commitment_columns
+print('OK 07 - pagamentos recorrentes guardam o valor esperado do mês para preservar histórico')
+
+alter_expected = 'ALTER TABLE commitment_payments ADD COLUMN expected_amount_cents INTEGER NOT NULL DEFAULT 0'
+update_expected = 'UPDATE commitment_payments SET expected_amount_cents = COALESCE((SELECT amount_cents FROM commitments WHERE commitments.id = commitment_payments.commitment_id), amount_cents) WHERE expected_amount_cents = 0'
+assert alter_expected in text
+assert update_expected in text
+print('OK 08 - existe migração segura do valor histórico para bancos V1/V2 anteriores')
+
+legacy = sqlite3.connect(':memory:')
+legacy.execute('CREATE TABLE commitments (id TEXT PRIMARY KEY, amount_cents INTEGER NOT NULL)')
+legacy.execute('CREATE TABLE commitment_payments (id TEXT PRIMARY KEY, commitment_id TEXT NOT NULL, month_key TEXT NOT NULL, amount_cents INTEGER NOT NULL)')
+legacy.execute("INSERT INTO commitments VALUES ('internet', 10990)")
+legacy.execute("INSERT INTO commitment_payments VALUES ('p1','internet','2026-08',9990)")
+legacy.execute(alter_expected)
+legacy.execute(update_expected)
+snapshot = legacy.execute("SELECT expected_amount_cents FROM commitment_payments WHERE id='p1'").fetchone()[0]
+assert snapshot == 10990
+print('OK 09 - migração de banco antigo preenche o valor esperado usando a recorrência existente')
+
+print('\nTodos os 9 testes estruturais do SQLite passaram.')

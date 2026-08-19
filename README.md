@@ -1,159 +1,52 @@
-# SOS Finança — V1.0.1 (revisada)
+# SOS Finança — V2.0.0
 
 Aplicativo local de organização financeira para Windows e Android.
 
-## Ideia central
+## O foco da V2
 
-O SOS Finança foi pensado para responder rapidamente:
+A V2 mantém o visual da V1 e refaz os fluxos de uso para reduzir atrito. A regra é: **pedir somente o que é indispensável e deixar o restante para depois**.
 
-- Quanto dinheiro tenho agora?
-- Quanto devo no total?
-- O que vence neste mês?
-- Quanto ainda posso gastar?
-- Onde meu dinheiro está indo?
-- Minha situação está melhorando ou piorando?
+### Principais mudanças
 
-Cada instalação é individual. Não existe banco familiar compartilhado, login online ou nuvem. Uma pessoa pode usar sua instalação para finanças pessoais e outra pode usar a mesma aplicação para administrar as contas da casa inteira.
+- Receitas fixas e contas fixas agora são áreas separadas.
+- Salário pode ser cadastrado como receita fixa e se repete todos os meses.
+- Conta fixa não exige data de início, data final nem dia de vencimento.
+- Sem data final, a recorrência continua indefinidamente.
+- Marcar um mês como pago/recebido não encerra a recorrência.
+- Valor de uma recorrência pode ser editado normalmente.
+- Meses já pagos/recebidos preservam o valor esperado daquele período mesmo depois de uma alteração no valor mensal.
+- Recorrências podem ser pausadas sem apagar o histórico.
+- Cartões possuem uma visão própria de compras por cartão.
+- É possível abrir um cartão e adicionar compras diretamente nele.
+- Cadastro de cartão aceita limite, fechamento e vencimento em branco.
+- Dívidas podem ser cadastradas sem data de início, juros, total de parcelas ou saldo conhecido.
+- A dívida continua visível como “saldo não informado” até os dados serem completados.
+- Formulários de movimentação, cartão e dívida usam valores padrão quando campos não essenciais ficam vazios.
+- A área Gerenciar ganhou atalhos para gasto rápido, salário/receita fixa, conta fixa, compra no cartão e nova dívida.
+- O executável Release do Windows não abre mais uma janela CMD junto com o app.
 
-## O que existe na V1
+## Dados locais
 
-### Consultar
+Cada instalação usa seu próprio banco SQLite local. Não existe conta online ou compartilhamento entre usuários.
 
-- Início com saldo disponível, dívida total, despesas do mês e fechamento projetado.
-- Mês com receitas/despesas previstas x realizadas e agenda financeira.
-- Contas com saldo consolidado e transferências.
-- Cartões com limite, fatura, parcelamentos e próximas faturas.
-- Dívidas com empréstimos, financiamentos, saldo devedor, parcelas, juros e progresso.
-- Orçamento mensal por categoria e metas.
-- Relatórios de 6 meses e gastos por categoria.
+## Atualização da V1
 
-### Gerenciar
+A V2 usa o mesmo identificador do aplicativo e o mesmo arquivo `sos_financa.db`. O `init` do banco mantém as tabelas existentes, então uma instalação V1 pode ser atualizada preservando o banco. Mesmo assim, faça backup antes de instalar qualquer atualização.
 
-- Lançamentos avulsos de receita/despesa.
-- Gasto rápido.
-- Contas bancárias/carteira.
-- Transferências entre contas sem virar receita/despesa.
-- Receitas e despesas recorrentes.
-- Registro de pagamento/recebimento de recorrências.
-- Cartões.
-- Compras parceladas.
-- Pagamento de faturas.
-- Dívidas, empréstimos e financiamentos.
-- Pagamentos de dívida com mês da parcela, data real do pagamento, principal/amortização e juros opcionais.
-- Categorias e subcategorias.
-- Orçamento por categoria.
-- Metas financeiras.
-- Backup/restauração local do SQLite no app instalado.
+## Teste rápido
 
-## Regras financeiras importantes
+- `00_ABRIR_PREVIA.bat`: abre a prévia HTML.
+- `07_TESTAR_REGRAS.bat`: executa os testes de regras financeiras e armazenamento.
+- `03_GERAR_INSTALADOR_WINDOWS.bat`: gera o instalador Windows em máquina preparada para Tauri.
 
-1. **Compra no cartão não baixa a conta bancária.** Ela entra na fatura correspondente. O dinheiro sai da conta somente quando a fatura é paga.
-2. **Transferência entre contas não é receita nem despesa.**
-3. **Dívida é contrato, não apenas parcela.** O app guarda saldo devedor e pagamentos separadamente.
-4. **Valor recorrente previsto não é considerado pago automaticamente.** É necessário registrar pagamento/recebimento.
-5. **Consulta e edição ficam separadas.** A área principal serve para entender os números; a área Gerenciar concentra alterações.
-6. **Arquivamento é preferido a apagar registros diretamente.**
+## Fluxo recomendado de teste da V2
 
-## Tecnologia
+1. Cadastre uma conta.
+2. Vá em Gerenciar → Receitas fixas e cadastre um salário sem data inicial/final.
+3. Registre o recebimento do salário no mês atual e avance o mês: ele deve continuar previsto.
+4. Cadastre uma conta fixa sem data inicial/final, pague o mês atual e avance: ela deve reaparecer.
+5. Edite o valor da conta fixa e confira que meses já pagos não são reabertos.
+6. Cadastre um cartão sem fechamento/vencimento se quiser, abra o cartão e adicione compras diretamente nele.
+7. Cadastre uma dívida sem data de início e sem saldo, apenas com nome/parcela, e complete os dados depois.
 
-- Tauri 2
-- Rust
-- SQLite com `rusqlite` e SQLite embutido
-- HTML/CSS/JavaScript sem framework e sem CDN
-- Banco salvo na pasta de dados local do aplicativo
-
-O frontend não precisa de Node/npm para rodar: o Tauri empacota os arquivos estáticos em `app/`.
-
-## Como testar a interface sem compilar
-
-No Windows, execute:
-
-`00_ABRIR_PREVIA.bat`
-
-Essa prévia usa `localStorage` do navegador apenas para permitir testar telas e fluxo rapidamente. **Ela não é o banco definitivo.** O aplicativo compilado usa SQLite real.
-
-## Como executar no Windows
-
-1. Instale os pré-requisitos do Tauri para Windows: Rust e Microsoft C++ Build Tools.
-2. Execute `01_PREPARAR_WINDOWS.bat`.
-3. Execute `02_EXECUTAR_WINDOWS.bat`.
-
-## Como gerar o instalador Windows
-
-Execute:
-
-`03_GERAR_INSTALADOR_WINDOWS.bat`
-
-O NSIS será produzido na pasta de bundle do Tauri.
-
-## Como preparar/gerar Android
-
-Com Android Studio, SDK, NDK e JDK configurados:
-
-1. `04_PREPARAR_ANDROID.bat`
-2. `05_GERAR_APK_ANDROID.bat`
-
-## Banco de dados
-
-O SQLite cria tabelas separadas para:
-
-- `accounts`
-- `categories`
-- `transactions`
-- `commitments`
-- `commitment_payments`
-- `cards`
-- `card_purchases`
-- `card_payments`
-- `debts`
-- `debt_payments`
-- `budgets`
-- `transfers`
-- `goals`
-
-A separação é proposital para evitar misturar cartões, dívidas, contas e lançamentos em uma estrutura difícil de manter.
-
-## Sincronização
-
-A V1 já usa identificadores UUID nos registros e mantém o banco individual por instalação. A sincronização local PC ↔ Android **ainda não está habilitada nesta entrega**. Ela foi deixada de fora do primeiro núcleo para que cartões, faturas, dívidas e saldos sejam validados antes de permitir mesclagem entre bancos financeiros.
-
-Quando implementada, a regra do projeto é: somente dispositivos da mesma pessoa podem sincronizar entre si.
-
-## Build automático no GitHub
-
-O projeto inclui `.github/workflows/build-windows.yml`. Ao enviar para a branch `main`, o GitHub Actions executa os testes financeiros e tenta gerar o instalador NSIS do Windows como artefato do workflow.
-
-## Teste das regras financeiras
-
-Se tiver Node disponível, execute:
-
-`07_TESTAR_REGRAS.bat`
-
-ou diretamente:
-
-`node tests/finance.test.js`
-
-O script executa os testes financeiros e os testes do armazenamento da prévia. A revisão V1.0.1 também foi validada com testes estruturais do SQLite e smoke tests de interface em desktop e mobile.
-
-## Revisão de QA da V1.0.1
-
-Antes desta entrega, a V1 foi revisada novamente com foco em integridade financeira e correção de uso real. Foram corrigidos, entre outros pontos:
-
-- datas locais para evitar mudança de dia por UTC;
-- vencimentos que atravessam a virada do mês;
-- financiamentos antigos com parcelas já pagas antes de começar a usar o app;
-- pagamento atrasado de dívida com mês de referência separado da data real do pagamento;
-- proteção contra pagamento duplicado ou maior que fatura/compromisso/saldo devedor;
-- validação de categorias, dias, parcelas e dados de cartão;
-- estorno/arquivamento de transferências, pagamentos recorrentes, faturas e dívidas;
-- bloqueio do saldo-base da dívida depois que pagamentos já foram registrados;
-- comportamento dos modais compatível com a política de segurança do app instalado;
-- navegação e responsividade em largura de desktop e celular.
-
-A bateria atual contém 31 testes de regras financeiras, 9 testes do armazenamento da prévia, 6 testes estruturais do SQLite e 15 verificações de interface.
-
-**Importante:** esses testes reduzem bastante o risco de erro, mas não substituem uma rodada de validação do executável compilado no Windows e do APK em aparelho Android real. Comece com valores fictícios antes de cadastrar a situação financeira real.
-
-## Referências de produto usadas na V1
-
-A V1 não copia nenhum aplicativo específico. Ela combina ideias observadas em ferramentas local-first de finanças, materiais de educação financeira sobre fluxo de caixa e redução de dívidas e relatos de usuários que preferem lançamento manual simples sem conexão bancária. As referências serviram para validar decisões de produto como: registro rápido, orçamento por categoria, visão de vencimentos, dívida tratada como saldo devedor e dados sob controle do próprio usuário.
+A V2 prioriza usabilidade e tolerância a informações incompletas sem esconder a estrutura financeira.

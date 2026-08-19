@@ -105,6 +105,7 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
             commitment_id TEXT NOT NULL,
             month_key TEXT NOT NULL,
             amount_cents INTEGER NOT NULL,
+            expected_amount_cents INTEGER NOT NULL DEFAULT 0,
             date TEXT NOT NULL,
             account_id TEXT,
             archived INTEGER NOT NULL DEFAULT 0,
@@ -256,6 +257,20 @@ pub fn init(app: &AppHandle) -> Result<(), String> {
         conn.execute("ALTER TABLE debt_payments ADD COLUMN installment_month TEXT", []).map_err(|e| e.to_string())?;
     }
 
+    let has_expected_amount = {
+        let mut stmt = conn.prepare("PRAGMA table_info(commitment_payments)").map_err(|e| e.to_string())?;
+        let names = stmt.query_map([], |row| row.get::<_, String>(1)).map_err(|e| e.to_string())?
+            .collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?;
+        names.iter().any(|name| name == "expected_amount_cents")
+    };
+    if !has_expected_amount {
+        conn.execute("ALTER TABLE commitment_payments ADD COLUMN expected_amount_cents INTEGER NOT NULL DEFAULT 0", []).map_err(|e| e.to_string())?;
+        conn.execute(
+            "UPDATE commitment_payments SET expected_amount_cents = COALESCE((SELECT amount_cents FROM commitments WHERE commitments.id = commitment_payments.commitment_id), amount_cents) WHERE expected_amount_cents = 0",
+            [],
+        ).map_err(|e| e.to_string())?;
+    }
+
     seed_categories(&conn)?;
     Ok(())
 }
@@ -402,8 +417,8 @@ pub fn save(app: &AppHandle, entity_type: &str, payload: &Value) -> Result<Strin
         "commitment_payment" => {
             let created = created_for(&conn, "commitment_payments", &id);
             conn.execute(
-                "INSERT INTO commitment_payments (id,commitment_id,month_key,amount_cents,date,account_id,archived,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,0,?7,?8) ON CONFLICT(id) DO UPDATE SET commitment_id=excluded.commitment_id,month_key=excluded.month_key,amount_cents=excluded.amount_cents,date=excluded.date,account_id=excluded.account_id,archived=0,updated_at=excluded.updated_at",
-                params![id, s(payload,"commitmentId"), s(payload,"monthKey"), i(payload,"amountCents"), s(payload,"date"), os(payload,"accountId"), created, updated],
+                "INSERT INTO commitment_payments (id,commitment_id,month_key,amount_cents,expected_amount_cents,date,account_id,archived,created_at,updated_at) VALUES (?1,?2,?3,?4,?5,?6,?7,0,?8,?9) ON CONFLICT(id) DO UPDATE SET commitment_id=excluded.commitment_id,month_key=excluded.month_key,amount_cents=excluded.amount_cents,expected_amount_cents=excluded.expected_amount_cents,date=excluded.date,account_id=excluded.account_id,archived=0,updated_at=excluded.updated_at",
+                params![id, s(payload,"commitmentId"), s(payload,"monthKey"), i(payload,"amountCents"), i(payload,"expectedAmountCents"), s(payload,"date"), os(payload,"accountId"), created, updated],
             ).map_err(|e| e.to_string())?;
         }
         "card" => {
@@ -589,8 +604,8 @@ pub fn state(app: &AppHandle) -> Result<Value, String> {
         "id":row.get::<_,String>(0)?, "name":row.get::<_,String>(1)?, "kind":row.get::<_,String>(2)?, "amountCents":row.get::<_,i64>(3)?, "dueDay":row.get::<_,i64>(4)?, "categoryId":row.get::<_,Option<String>>(5)?, "accountId":row.get::<_,Option<String>>(6)?, "startMonth":row.get::<_,String>(7)?, "endMonth":row.get::<_,Option<String>>(8)?, "active":row.get::<_,i64>(9)?==1, "notes":row.get::<_,String>(10)?, "createdAt":row.get::<_,String>(11)?, "updatedAt":row.get::<_,String>(12)?
     })))?;
 
-    let commitment_payments = rows(&conn, "SELECT id,commitment_id,month_key,amount_cents,date,account_id,created_at,updated_at FROM commitment_payments WHERE archived=0 ORDER BY date DESC", |row| Ok(json!({
-        "id":row.get::<_,String>(0)?, "commitmentId":row.get::<_,String>(1)?, "monthKey":row.get::<_,String>(2)?, "amountCents":row.get::<_,i64>(3)?, "date":row.get::<_,String>(4)?, "accountId":row.get::<_,Option<String>>(5)?, "createdAt":row.get::<_,String>(6)?, "updatedAt":row.get::<_,String>(7)?
+    let commitment_payments = rows(&conn, "SELECT id,commitment_id,month_key,amount_cents,expected_amount_cents,date,account_id,created_at,updated_at FROM commitment_payments WHERE archived=0 ORDER BY date DESC", |row| Ok(json!({
+        "id":row.get::<_,String>(0)?, "commitmentId":row.get::<_,String>(1)?, "monthKey":row.get::<_,String>(2)?, "amountCents":row.get::<_,i64>(3)?, "expectedAmountCents":row.get::<_,i64>(4)?, "date":row.get::<_,String>(5)?, "accountId":row.get::<_,Option<String>>(6)?, "createdAt":row.get::<_,String>(7)?, "updatedAt":row.get::<_,String>(8)?
     })))?;
 
     let cards = rows(&conn, "SELECT id,name,bank,brand,last4,limit_cents,close_day,due_day,account_id,created_at,updated_at FROM cards WHERE archived=0 ORDER BY created_at", |row| Ok(json!({

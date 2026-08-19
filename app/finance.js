@@ -58,8 +58,10 @@
     const date = parseDate(purchaseDate);
     const key = monthKey(date);
     const day = date.getDate();
-    const close = Number(card.closeDay || 1);
-    const due = Number(card.dueDay || 10);
+    const close = Number(card.closeDay || 0);
+    const due = Number(card.dueDay || 0);
+    if (close <= 0) return key;
+    if (due <= 0) return day <= close ? key : addMonths(key, 1);
     if (due > close) return day <= close ? key : addMonths(key, 1);
     return day <= close ? addMonths(key, 1) : addMonths(key, 2);
   }
@@ -94,9 +96,18 @@
     return Math.max(0, purchases - payments);
   }
 
+  function debtHasKnownBalance(debt) {
+    return Number(debt?.balanceCents || debt?.totalContractCents || debt?.originalCents || 0) > 0;
+  }
+
   function debtBalance(state, debt) {
     const reduced = (state.debtPayments || []).filter(p => p.debtId === debt.id).reduce((sum, p) => sum + Number(p.principalCents || p.amountCents || 0), 0);
     return Math.max(0, Number(debt.balanceCents || debt.totalContractCents || debt.originalCents || 0) - reduced);
+  }
+
+  function debtIsOpen(state, debt) {
+    if (!debt || debt.status === 'paid') return false;
+    return debtHasKnownBalance(debt) ? debtBalance(state, debt) > 0 : true;
   }
 
   function debtPaidCount(state, debt) {
@@ -111,13 +122,18 @@
   }
 
   function debtDueInMonth(debt, key) {
+    if (Number(debt?.installmentCents || 0) <= 0 || debt?.status === 'paid') return false;
+    if (!debt?.startDate) {
+      const trackingStart = debt?.createdAt ? monthKey(debt.createdAt) : '';
+      return !trackingStart || key >= trackingStart;
+    }
     const index = debtMonthIndex(debt, key);
     if (index < 0) return false;
     const historical = Math.max(0, Number(debt.installmentsPaid || 0));
     if (index < historical) return false;
     const total = Math.max(0, Number(debt.installmentsTotal || 0));
     if (total > 0 && index >= total) return false;
-    return Number(debt.installmentCents || 0) > 0;
+    return true;
   }
 
   function debtPaymentMonth(payment) {
@@ -126,13 +142,21 @@
 
   function commitmentActiveInMonth(c, key) {
     if (!c.active) return false;
-    if (c.startMonth && key < c.startMonth) return false;
+    const trackingStart = c.startMonth || (c.createdAt ? monthKey(c.createdAt) : '');
+    if (trackingStart && key < trackingStart) return false;
     if (c.endMonth && key > c.endMonth) return false;
     return true;
   }
 
   function commitmentPaid(state, c, key) {
     return (state.commitmentPayments || []).filter(p => p.commitmentId === c.id && p.monthKey === key).reduce((sum, p) => sum + Number(p.amountCents || 0), 0);
+  }
+
+  function commitmentExpectedAmount(state, c, key) {
+    const snapshots = (state.commitmentPayments || [])
+      .filter(p => p.commitmentId === c.id && p.monthKey === key && Number(p.expectedAmountCents || 0) > 0)
+      .map(p => Number(p.expectedAmountCents || 0));
+    return snapshots.length ? Math.max(...snapshots) : Number(c.amountCents || 0);
   }
 
   function accountBalance(state, accountId) {
@@ -170,7 +194,7 @@
     const commitments = (state.commitments || []).filter(c => commitmentActiveInMonth(c, key));
     let recurringIncome = 0, recurringExpense = 0, recurringIncomePaid = 0, recurringExpensePaid = 0;
     commitments.forEach(c => {
-      const amount = Number(c.amountCents || 0);
+      const amount = commitmentExpectedAmount(state, c, key);
       const paid = commitmentPaid(state, c, key);
       if (c.kind === 'income') { recurringIncome += amount; recurringIncomePaid += Math.min(amount, paid); }
       else { recurringExpense += amount; recurringExpensePaid += Math.min(amount, paid); }
@@ -182,7 +206,7 @@
 
     const debtPayments = (state.debtPayments || []).filter(p => debtPaymentMonth(p) === key);
     const debtPaid = debtPayments.reduce((a, p) => a + Number(p.amountCents || 0), 0);
-    const debtPlanned = (state.debts || []).filter(d => d.status !== 'paid' && debtBalance(state, d) > 0 && debtDueInMonth(d, key)).reduce((a, d) => a + Number(d.installmentCents || 0), 0);
+    const debtPlanned = (state.debts || []).filter(d => debtIsOpen(state, d) && debtDueInMonth(d, key)).reduce((a, d) => a + Number(d.installmentCents || 0), 0);
 
     const incomePlanned = directIncome + recurringIncome;
     const expensesPlanned = directExpense + recurringExpense + cardPlanned + debtPlanned;
@@ -213,21 +237,25 @@
   function monthAgenda(state, key, today = todayKey()) {
     const items = [];
     (state.commitments || []).filter(c => commitmentActiveInMonth(c, key)).forEach(c => {
-      const dueDate = clampDay(key, c.dueDay);
+      const hasDueDay = Number(c.dueDay || 0) > 0;
+      const dueDate = hasDueDay ? clampDay(key, c.dueDay) : `${key}-01`;
       const paid = commitmentPaid(state, c, key);
-      items.push({ type: 'commitment', id: c.id, label: c.name, dueDate, amountCents: Number(c.amountCents || 0), paidCents: paid, kind: c.kind, status: paid >= Number(c.amountCents || 0) ? 'paid' : dueDate < today ? 'overdue' : 'pending' });
+      const expected = commitmentExpectedAmount(state, c, key);
+      items.push({ type: 'commitment', id: c.id, label: c.name, dueDate, noDueDate: !hasDueDay, amountCents: expected, paidCents: paid, kind: c.kind, status: paid >= expected ? 'paid' : hasDueDay && dueDate < today ? 'overdue' : 'pending' });
     });
     (state.cards || []).forEach(card => {
       const inv = invoiceFor(state, card.id, key);
       if (inv.amountCents > 0) {
-        const dueDate = clampDay(key, card.dueDay);
-        items.push({ type: 'card', id: card.id, label: `Fatura ${card.name}`, dueDate, amountCents: inv.amountCents, paidCents: inv.paidCents, kind: 'expense', status: inv.remainingCents <= 0 ? 'paid' : dueDate < today ? 'overdue' : 'pending' });
+        const hasDueDay = Number(card.dueDay || 0) > 0;
+        const dueDate = hasDueDay ? clampDay(key, card.dueDay) : `${key}-01`;
+        items.push({ type: 'card', id: card.id, label: `Fatura ${card.name}`, dueDate, noDueDate: !hasDueDay, amountCents: inv.amountCents, paidCents: inv.paidCents, kind: 'expense', status: inv.remainingCents <= 0 ? 'paid' : hasDueDay && dueDate < today ? 'overdue' : 'pending' });
       }
     });
-    (state.debts || []).filter(d => d.status !== 'paid' && debtBalance(state, d) > 0 && debtDueInMonth(d, key)).forEach(d => {
-      const dueDate = clampDay(key, d.dueDay);
+    (state.debts || []).filter(d => debtIsOpen(state, d) && debtDueInMonth(d, key)).forEach(d => {
+      const hasDueDay = Number(d.dueDay || 0) > 0;
+      const dueDate = hasDueDay ? clampDay(key, d.dueDay) : `${key}-01`;
       const paidThisMonth = (state.debtPayments || []).filter(p => p.debtId === d.id && debtPaymentMonth(p) === key).reduce((a, p) => a + Number(p.amountCents || 0), 0);
-      items.push({ type: 'debt', id: d.id, label: d.name, dueDate, amountCents: Number(d.installmentCents || 0), paidCents: paidThisMonth, kind: 'expense', status: paidThisMonth >= Number(d.installmentCents || 0) ? 'paid' : dueDate < today ? 'overdue' : 'pending' });
+      items.push({ type: 'debt', id: d.id, label: d.name, dueDate, noDueDate: !hasDueDay, amountCents: Number(d.installmentCents || 0), paidCents: paidThisMonth, kind: 'expense', status: paidThisMonth >= Number(d.installmentCents || 0) ? 'paid' : hasDueDay && dueDate < today ? 'overdue' : 'pending' });
     });
     return items.sort((a, b) => a.dueDate.localeCompare(b.dueDate));
   }
@@ -240,10 +268,12 @@
     const candidates = [currentKey];
 
     (state.commitments || []).forEach(c => {
-      if (c.active && c.startMonth) candidates.push(c.startMonth);
+      const start = c.startMonth || (c.createdAt ? monthKey(c.createdAt) : '');
+      if (c.active && start) candidates.push(start);
     });
     (state.debts || []).forEach(d => {
-      if (d.startDate) candidates.push(addMonths(monthKey(d.startDate), Math.max(0, Number(d.installmentsPaid || 0))));
+      const start = d.startDate ? monthKey(d.startDate) : (d.createdAt ? monthKey(d.createdAt) : '');
+      if (start) candidates.push(addMonths(start, d.startDate ? Math.max(0, Number(d.installmentsPaid || 0)) : 0));
     });
     (state.cardPurchases || []).forEach(p => {
       const schedule = purchaseSchedule(state, p);
@@ -257,7 +287,7 @@
     const result = { overdue: [], next7: [], later: [] };
 
     monthsRange(earliest, through).flatMap(month => monthAgenda(state, month, todayText))
-      .filter(x => x.kind === 'expense' && x.status !== 'paid')
+      .filter(x => x.kind === 'expense' && x.status !== 'paid' && !x.noDueDate)
       .forEach(item => {
         const d = parseDate(item.dueDate);
         if (d < today) result.overdue.push(item);
@@ -275,7 +305,7 @@
   window.SOSFinance = {
     pad, todayKey, monthKey, addMonths, monthDistance, monthsRange, clampDay, money, centsFromInput, dateLabel, monthLabel, parseDate,
     byId, categoryName, accountName, installmentParts, firstInvoiceMonth, purchaseSchedule, invoiceFor, cardCommitted,
-    debtBalance, debtPaidCount, debtMonthIndex, debtDueInMonth, debtPaymentMonth, commitmentActiveInMonth, commitmentPaid, accountBalance, currentBalance, monthTransactions,
+    debtHasKnownBalance, debtBalance, debtIsOpen, debtPaidCount, debtMonthIndex, debtDueInMonth, debtPaymentMonth, commitmentActiveInMonth, commitmentPaid, commitmentExpectedAmount, accountBalance, currentBalance, monthTransactions,
     monthSummary, expenseByCategory, monthAgenda, dueBuckets, lastMonths
   };
 })();

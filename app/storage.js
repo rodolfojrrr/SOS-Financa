@@ -1,5 +1,5 @@
 (() => {
-  const KEY = 'sos-financa-browser-v1';
+  const KEY = 'sos-financa-browser-v2';
 
   const defaults = () => ({
     profile: null,

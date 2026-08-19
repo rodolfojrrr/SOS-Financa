@@ -92,4 +92,43 @@ eq(F.commitmentActiveInMonth({ active: true, startMonth: '2026-03', endMonth: '2
 eq(F.commitmentActiveInMonth({ active: true, startMonth: '2026-03', endMonth: '2026-05' }, '2026-04'), true, 'recorrência existe dentro do período');
 eq(F.commitmentActiveInMonth({ active: true, startMonth: '2026-03', endMonth: '2026-05' }, '2026-06'), false, 'recorrência termina no mês configurado');
 
+
+
+// V2: recorrências sem datas explícitas começam no mês em que foram cadastradas
+st = base();
+st.commitments.push({ id: 'salary', name: 'Salário', kind: 'income', amountCents: 250000, dueDay: 0, startMonth: '', endMonth: null, active: true, createdAt: '2026-08-19T12:00:00-03:00' });
+eq(F.commitmentActiveInMonth(st.commitments[0], '2026-07'), false, 'receita fixa sem início informado não altera meses anteriores ao cadastro');
+eq(F.commitmentActiveInMonth(st.commitments[0], '2026-08'), true, 'receita fixa sem início informado vale no mês do cadastro');
+eq(F.commitmentActiveInMonth(st.commitments[0], '2027-01'), true, 'receita fixa sem data final continua nos meses futuros');
+st.commitmentPayments.push({ id: 'sal-pay', commitmentId: 'salary', monthKey: '2026-08', amountCents: 250000, date: '2026-08-20', accountId: null });
+eq(F.monthSummary(st, '2026-08').incomeRealized, 250000, 'salário fixo recebido entra como realizado no mês');
+eq(F.monthSummary(st, '2026-09').recurringIncome, 250000, 'receber salário em agosto não encerra a receita fixa em setembro');
+
+// V2: editar o valor atual não reabre mês antigo já registrado
+st.commitmentPayments[0].expectedAmountCents = 250000;
+st.commitments[0].amountCents = 300000;
+eq(F.commitmentExpectedAmount(st, st.commitments[0], '2026-08'), 250000, 'mês já recebido preserva o valor esperado que valia quando foi registrado');
+eq(F.monthSummary(st, '2026-08').recurringIncome, 250000, 'editar salário para meses atuais não reescreve a previsão histórica já recebida');
+eq(F.monthSummary(st, '2026-09').recurringIncome, 300000, 'novo valor da receita fixa passa a valer nos meses sem registro histórico');
+
+// V2: conta fixa sem vencimento continua planejada, mas não vira falso atraso
+st.commitments = [{ id: 'rent', name: 'Conta fixa', kind: 'expense', amountCents: 90000, dueDay: 0, startMonth: '', endMonth: null, active: true, createdAt: '2026-08-19T12:00:00-03:00' }];
+st.commitmentPayments = [{ id: 'rent-pay', commitmentId: 'rent', monthKey: '2026-08', amountCents: 90000, date: '2026-08-19' }];
+eq(F.monthSummary(st, '2026-09').recurringExpense, 90000, 'pagar conta fixa em agosto não remove a previsão de setembro');
+buckets = F.dueBuckets(st, '2026-08', new Date('2026-08-25T12:00:00-03:00'));
+expect(!buckets.overdue.some(x => x.id === 'rent'), 'conta fixa sem dia de vencimento não aparece falsamente como atrasada');
+
+// V2: dívida pode existir com saldo desconhecido e sem data de início
+st = base();
+st.debts.push({ id: 'unknown', name: 'Empréstimo antigo', balanceCents: 0, totalContractCents: 0, originalCents: 0, installmentCents: 45000, startDate: '', dueDay: 0, status: 'active', createdAt: '2026-08-19T12:00:00-03:00' });
+expect(F.debtIsOpen(st, st.debts[0]), 'dívida com saldo desconhecido continua visível como em aberto');
+eq(F.debtDueInMonth(st.debts[0], '2026-07'), false, 'dívida sem início conhecido não é projetada antes de ser cadastrada');
+eq(F.debtDueInMonth(st.debts[0], '2026-09'), true, 'dívida sem início conhecido continua prevista depois do cadastro quando há parcela');
+
+// V2: cartão sem datas ainda aceita compras usando o mês da compra como referência
+st = base();
+st.cards.push({ id: 'simple-card', name: 'Cartão simples', limitCents: 0, closeDay: 0, dueDay: 0 });
+st.cardPurchases.push({ id: 'simple-p', cardId: 'simple-card', description: 'Compra simples', totalCents: 9990, purchaseDate: '2026-08-19', installments: 1 });
+eq(F.invoiceFor(st, 'simple-card', '2026-08').amountCents, 9990, 'cartão sem fechamento/vencimento mantém compra na fatura do mês da compra');
+
 console.log(`\nTodos os ${passed} testes financeiros passaram.`);
