@@ -5,7 +5,7 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 #[cfg(target_os = "windows")]
 use std::process::Command;
 use std::sync::{Arc, Mutex, OnceLock, atomic::{AtomicBool, Ordering}};
@@ -154,46 +154,20 @@ fn prepare_payload(plain: Vec<u8>) -> Result<PreparedPayload, String> {
     })
 }
 
-fn read_protocol_line(stream: &mut TcpStream, limit: usize) -> Result<String, String> {
-    let mut buf = Vec::with_capacity(128);
-    let mut one = [0u8; 1];
-
-    while buf.len() < limit {
-        match stream.read(&mut one) {
-            Ok(0) => break,
-            Ok(_) => {
-                if one[0] == b'\n' {
-                    break;
-                }
-                if one[0] != b'\r' {
-                    buf.push(one[0]);
-                }
-            }
-            Err(e) => return Err(format!("Falha ao ler resposta do celular: {e}")),
-        }
-    }
-
-    if buf.len() >= limit {
-        return Err("Resposta do celular excedeu o limite permitido.".into());
-    }
-
-    String::from_utf8(buf).map_err(|_| "Resposta inválida recebida do celular.".into())
-}
-
 fn handle_client(mut stream: TcpStream, payload: &PreparedPayload) -> Result<bool, String> {
-    stream.set_read_timeout(Some(Duration::from_secs(120))).map_err(|e| e.to_string())?;
-    stream.set_write_timeout(Some(Duration::from_secs(180))).map_err(|e| e.to_string())?;
+    stream.set_read_timeout(Some(Duration::from_secs(30))).map_err(|e| e.to_string())?;
+    stream.set_write_timeout(Some(Duration::from_secs(120))).map_err(|e| e.to_string())?;
     let _ = stream.set_nodelay(true);
 
     let challenge_uuid = Uuid::new_v4();
     let challenge = challenge_uuid.as_bytes();
+    writeln!(stream, "{} {}", PROTOCOL, hex(challenge)).map_err(|e| e.to_string())?;
+    stream.flush().map_err(|e| e.to_string())?;
 
-    let hello = format!("{} {}\n", PROTOCOL, hex(challenge));
-    stream.write_all(hello.as_bytes()).map_err(|e| format!("Falha ao iniciar conversa com o celular: {e}"))?;
-    stream.flush().map_err(|e| format!("Falha ao enviar identificação ao celular: {e}"))?;
-
-    let auth_line = read_protocol_line(&mut stream, 512)?;
-    if auth_line.is_empty() {
+    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
+    let mut auth_line = String::new();
+    let auth_bytes = reader.read_line(&mut auth_line).map_err(|e| format!("Falha ao receber autenticação do celular: {e}"))?;
+    if auth_bytes == 0 {
         return Ok(false);
     }
 
@@ -201,7 +175,6 @@ fn handle_client(mut stream: TcpStream, payload: &PreparedPayload) -> Result<boo
         send_error(&mut stream, "autenticação inválida");
         return Ok(false);
     };
-
     let received = match from_hex(auth_hex) {
         Ok(value) => value,
         Err(err) => {
@@ -209,35 +182,21 @@ fn handle_client(mut stream: TcpStream, payload: &PreparedPayload) -> Result<boo
             return Ok(false);
         }
     };
-
     if !auth_matches(FIXED_TOKEN, challenge, &received)? {
-        send_error(&mut stream, "código incorreto; use 534F-5346-494E-414E");
+        send_error(&mut stream, "código incorreto; use o código fixo mostrado no PC");
         return Ok(false);
     }
 
     let header = format!(
-        "DATA {} {} {}\n",
+        "DATA {} {} {}",
         payload.encrypted.len(),
         payload.nonce_hex,
         payload.hash_hex
     );
-
-    let total_len = header.len()
-        .checked_add(payload.encrypted.len())
-        .ok_or_else(|| "Tamanho da transferência inválido.".to_string())?;
-
-    let mut packet = Vec::with_capacity(total_len);
-    packet.extend_from_slice(header.as_bytes());
-    packet.extend_from_slice(payload.encrypted.as_slice());
-
-    stream
-        .write_all(&packet)
-        .map_err(|e| format!("Falha ao transmitir o banco para o celular: {e}"))?;
-    stream
-        .flush()
-        .map_err(|e| format!("Falha ao concluir a transmissão para o celular: {e}"))?;
-
-    let _ = stream.shutdown(Shutdown::Write);
+    writeln!(stream, "{header}").map_err(|e| format!("Falha ao enviar cabeçalho para o celular: {e}"))?;
+    stream.flush().map_err(|e| format!("Falha ao confirmar cabeçalho para o celular: {e}"))?;
+    stream.write_all(payload.encrypted.as_slice()).map_err(|e| format!("Falha ao enviar banco para o celular: {e}"))?;
+    stream.flush().map_err(|e| format!("Falha ao concluir envio para o celular: {e}"))?;
     Ok(true)
 }
 
