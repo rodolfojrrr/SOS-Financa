@@ -4,7 +4,7 @@ use hmac::{Hmac, Mac};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{Read, Write};
 use std::net::{IpAddr, Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 #[cfg(target_os = "windows")]
 use std::process::Command;
@@ -321,64 +321,122 @@ pub fn stop_server() {
     }
 }
 
-pub fn receive_from_pc(app: &AppHandle, host: &str, port: u16, code: &str) -> Result<Value, String> {
+pub fn receive_from_pc(app: &AppHandle, host: &str, _port: u16, _code: &str) -> Result<Value, String> {
     if !cfg!(target_os = "android") {
         return Err("O recebimento foi preparado para o aplicativo Android.".into());
     }
+
     let host = host.trim();
-    if host.is_empty() { return Err("Informe o IP mostrado no PC.".into()); }
-    if port == 0 { return Err("Informe a porta mostrada no PC.".into()); }
-    let token = clean_token(code);
-    if token.len() != 16 || !token.chars().all(|c| c.is_ascii_hexdigit()) {
-        return Err("Digite a chave de 16 caracteres mostrada no PC.".into());
+    if host.is_empty() {
+        return Err("Informe o IP mostrado no PC.".into());
     }
 
-    let ip: IpAddr = host.parse().map_err(|_| "Digite um IP válido, como 192.168.0.15.".to_string())?;
-    let socket_addr = SocketAddr::new(ip, port);
-    let mut stream = TcpStream::connect_timeout(&socket_addr, Duration::from_secs(10)).map_err(|e| format!("Não consegui conectar ao PC. Confirme o mesmo Wi-Fi e o firewall. Detalhe: {e}"))?;
-    stream.set_read_timeout(Some(Duration::from_secs(60))).map_err(|e| e.to_string())?;
-    stream.set_write_timeout(Some(Duration::from_secs(20))).map_err(|e| e.to_string())?;
+    let ip: IpAddr = host
+        .parse()
+        .map_err(|_| "Digite um IP válido, como 192.168.0.15.".to_string())?;
+    let socket_addr = SocketAddr::new(ip, FIXED_PORT);
+
+    let mut stream = TcpStream::connect_timeout(&socket_addr, Duration::from_secs(15))
+        .map_err(|e| format!(
+            "Não consegui conectar ao PC em {host}:{FIXED_PORT}. Confirme o mesmo Wi-Fi e deixe a tela de envio aberta no PC. Detalhe: {e}"
+        ))?;
+    stream
+        .set_read_timeout(Some(Duration::from_secs(180)))
+        .map_err(|e| e.to_string())?;
+    stream
+        .set_write_timeout(Some(Duration::from_secs(60)))
+        .map_err(|e| e.to_string())?;
     let _ = stream.set_nodelay(true);
 
-    let mut reader = BufReader::new(stream.try_clone().map_err(|e| e.to_string())?);
-    let mut hello = String::new();
-    let hello_bytes = reader.read_line(&mut hello).map_err(|e| format!("Não consegui receber a identificação do PC: {e}"))?;
-    if hello_bytes == 0 {
+    let hello = read_protocol_line(&mut stream, 512)
+        .map_err(|e| format!("Não consegui receber a identificação do PC: {e}"))?;
+    if hello.is_empty() {
         return Err("O PC encerrou a conexão antes de iniciar a sincronização.".into());
     }
-    let parts = hello.trim().split_whitespace().collect::<Vec<_>>();
-    if parts.len() != 2 || parts[0] != PROTOCOL { return Err("Resposta inicial de sincronização inválida.".into()); }
-    let challenge = from_hex(parts[1])?;
-    let digest = auth_digest(&token, &challenge)?;
-    writeln!(stream, "AUTH {}", hex(&digest)).map_err(|e| e.to_string())?;
-    stream.flush().map_err(|e| e.to_string())?;
 
-    let mut header = String::new();
-    let header_bytes = reader.read_line(&mut header).map_err(|e| format!("Falha ao aguardar os dados do PC: {e}"))?;
-    if header_bytes == 0 {
-        return Err("O PC encerrou a transferência logo após validar a chave. Atualize PC e celular para a versão 3.1.1 e tente novamente.".into());
+    let parts = hello.trim().split_whitespace().collect::<Vec<_>>();
+    if parts.len() != 2 || parts[0] != PROTOCOL {
+        return Err(format!(
+            "O PC respondeu com um protocolo inesperado: {}",
+            clean_error_line(&hello)
+        ));
     }
+
+    let challenge = from_hex(parts[1])?;
+    let digest = auth_digest(FIXED_TOKEN, &challenge)?;
+    let auth = format!("AUTH {}\n", hex(&digest));
+    stream
+        .write_all(auth.as_bytes())
+        .map_err(|e| format!("Não consegui confirmar o pareamento com o PC: {e}"))?;
+    stream
+        .flush()
+        .map_err(|e| format!("Não consegui enviar a confirmação ao PC: {e}"))?;
+
+    let header = read_protocol_line(&mut stream, 1024)
+        .map_err(|e| format!("Falha ao aguardar o banco enviado pelo PC: {e}"))?;
+    if header.is_empty() {
+        return Err(
+            "O PC encerrou a conexão antes de enviar o banco. Mantenha a janela de sincronização aberta no PC e tente novamente."
+                .into(),
+        );
+    }
+
     let header = header.trim();
-    if header.starts_with("ERR ") {
-        return Err(format!("O PC recusou a transferência: {}", &header[4..]));
+    if let Some(message) = header.strip_prefix("ERR ") {
+        return Err(format!("O PC recusou a transferência: {message}"));
     }
+
     let parts = header.split_whitespace().collect::<Vec<_>>();
     if parts.len() != 4 || parts[0] != "DATA" {
-        return Err(format!("Cabeçalho de dados inválido recebido do PC: {}", if header.is_empty() { "(vazio)" } else { header }));
+        return Err(format!(
+            "O PC respondeu, mas o cabeçalho do banco não foi reconhecido: {}",
+            clean_error_line(header)
+        ));
     }
-    let size: usize = parts[1].parse().map_err(|_| "Tamanho de sincronização inválido.".to_string())?;
-    if size == 0 || size > MAX_SYNC_BYTES { return Err("Tamanho de sincronização recusado.".into()); }
+
+    let size: usize = parts[1]
+        .parse()
+        .map_err(|_| "O PC informou um tamanho de banco inválido.".to_string())?;
+    if size == 0 || size > MAX_SYNC_BYTES {
+        return Err(format!(
+            "O tamanho recebido ({size} bytes) foi recusado por segurança."
+        ));
+    }
+
     let nonce_vec = from_hex(parts[2])?;
-    if nonce_vec.len() != 12 { return Err("Proteção da sincronização inválida.".into()); }
+    if nonce_vec.len() != 12 {
+        return Err("A proteção criptográfica recebida do PC é inválida.".into());
+    }
     let expected_hash = parts[3].to_lowercase();
 
     let mut encrypted = vec![0u8; size];
-    reader.read_exact(&mut encrypted).map_err(|e| format!("A transferência foi interrompida antes de terminar: {e}"))?;
-    let key_bytes = crypto_key(&token);
+    let mut received = 0usize;
+    while received < size {
+        match stream.read(&mut encrypted[received..]) {
+            Ok(0) => {
+                return Err(format!(
+                    "A conexão terminou após receber {received} de {size} bytes. Nada foi alterado no celular."
+                ));
+            }
+            Ok(n) => received += n,
+            Err(e) => {
+                return Err(format!(
+                    "A transferência parou em {received} de {size} bytes. Nada foi alterado no celular. Detalhe: {e}"
+                ));
+            }
+        }
+    }
+
+    let key_bytes = crypto_key(FIXED_TOKEN);
     let cipher = ChaCha20Poly1305::new(Key::from_slice(&key_bytes));
-    let plain = cipher.decrypt(Nonce::from_slice(&nonce_vec), encrypted.as_ref()).map_err(|_| "Não foi possível descriptografar os dados. Confira a chave.".to_string())?;
+    let plain = cipher
+        .decrypt(Nonce::from_slice(&nonce_vec), encrypted.as_ref())
+        .map_err(|_| "Os dados chegaram, mas não foi possível validá-los/descriptografá-los. Nada foi alterado.".to_string())?;
+
     let actual_hash = hex(&Sha256::digest(&plain));
-    if actual_hash != expected_hash { return Err("A verificação de integridade falhou. Nada foi alterado no celular.".into()); }
+    if actual_hash != expected_hash {
+        return Err("A verificação de integridade falhou. Nada foi alterado no celular.".into());
+    }
 
     let imported = db::import_sync_database(app, &plain)?;
     Ok(json!({
@@ -388,3 +446,4 @@ pub fn receive_from_pc(app: &AppHandle, host: &str, port: u16, code: &str) -> Re
         "message": "Dados do PC recebidos e aplicados com sucesso."
     }))
 }
+

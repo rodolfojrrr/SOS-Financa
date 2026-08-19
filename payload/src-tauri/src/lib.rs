@@ -56,8 +56,10 @@ fn stop_sync_server() -> Result<(), String> {
 }
 
 #[tauri::command]
-fn receive_sync_from_pc(app: AppHandle, host: String, port: u16, code: String) -> Result<Value, String> {
-    sync::receive_from_pc(&app, &host, port, &code)
+async fn receive_sync_from_pc(app: AppHandle, host: String, port: u16, code: String) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || sync::receive_from_pc(&app, &host, port, &code))
+        .await
+        .map_err(|e| format!("Falha interna ao executar a sincronização fora da interface: {e}"))?
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

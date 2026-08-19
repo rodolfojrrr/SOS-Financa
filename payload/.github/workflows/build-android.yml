@@ -2,6 +2,10 @@ name: Build Android
 
 'on':
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-android.yml'
 
 permissions:
   contents: read

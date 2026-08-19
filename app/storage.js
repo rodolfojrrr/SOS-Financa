@@ -131,8 +131,12 @@
     async stopSyncServer() {
       if (hasTauri()) return invoke('stop_sync_server');
     },
-    async receiveSyncFromPc(host, port, code) {
-      if (hasTauri()) return invoke('receive_sync_from_pc', { host, port: Number(port), code });
+    async receiveSyncFromPc(host) {
+      if (hasTauri()) return invoke('receive_sync_from_pc', {
+        host,
+        port: 45454,
+        code: '534F-5346-494E-414E'
+      });
       throw new Error('A sincronização Wi-Fi está disponível somente no aplicativo instalado.');
     },
     resetPreview() {

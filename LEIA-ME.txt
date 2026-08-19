@@ -1,39 +1,46 @@
-SOS FINANCA 3.1.2 - CORRECAO SOMENTE PC
+SOS FINANCA 3.1.4 - FIX DO APK / SINCRONIZACAO ANDROID
 
 OBJETIVO
-- Atualizar somente o Windows.
-- Nao reinstalar nem atualizar o APK atual.
-- Corrigir o servidor PC -> celular.
-- Usar sempre a porta TCP 45454.
-- Parar de gerar chave temporaria.
+Corrigir o recebimento PC -> celular sem exigir nova instalacao do Windows.
 
-IMPORTANTE SOBRE O CELULAR ATUAL
-O APK que ja esta instalado ainda possui os campos Porta e Chave porque essa interface esta dentro do APK.
-Sem atualizar o celular, nao existe como remover visualmente esses campos.
-Para evitar reinstalar o APK, esta versao do PC usa valores FIXOS:
+O PC pode continuar na versao 3.1.3.
 
-Porta: 45454
-Codigo: 534F-5346-494E-414E
+O QUE MUDA NO APK
+- O recebimento de rede sai da thread principal do Tauri.
+- A leitura do cabecalho DATA e do banco usa a mesma conexao TCP.
+- Remove o BufReader baseado em socket clonado no Android.
+- O celular passa a pedir SOMENTE o IP do PC.
+- Porta 45454 e codigo de compatibilidade ficam internos.
+- A leitura do banco informa quantos bytes chegaram se a conexao cair.
+- Timeouts foram ampliados.
+- Backup do banco do celular continua sendo feito antes da importacao.
 
-Esses dois valores nao mudam. Voce so usa o IP que o PC mostrar.
-
-COMO ATUALIZAR
+COMO APLICAR
 1. Extraia este ZIP.
-2. Execute ATUALIZAR_SOMENTE_PC.bat.
-3. O script localiza o repositorio e envia a alteracao para o GitHub.
-4. No GitHub, somente Build Windows deve iniciar automaticamente.
-5. Baixe o artifact SOS-Financa-Windows.
-6. Instale a nova versao no PC.
-7. Nao mexa no APK do celular.
+2. Execute ATUALIZAR_APK_ANDROID.bat.
+3. O atualizador encontra a pasta Git do SOS-Financa e faz o push.
+4. Abra GitHub > Actions.
+5. Aguarde Build Android.
+6. Baixe SOS-Financa-Android-Release se voce configurou assinatura.
+   Caso contrario, baixe SOS-Financa-Android-TESTE.
+7. Instale no celular.
+8. No PC 3.1.3 abra Configuracoes > Sincronizacao > Enviar dados deste PC.
+9. No celular abra Configuracoes > Sincronizacao > Receber do PC.
+10. Digite somente o IP mostrado pelo PC.
 
-SINCRONIZACAO
-No PC: Configuracoes -> Sincronizacao -> Enviar dados deste PC.
-No celular atual informe:
-- IP: o mostrado no PC
-- Porta: 45454
-- Chave: 534F-5346-494E-414E
+SE O ANDROID RECUSAR A ATUALIZACAO
+Se o APK anterior era uma build de TESTE/debug gerada em outro runner do GitHub,
+o Android pode considerar a assinatura diferente. Nesse caso:
+- como o PC e a origem dos dados, desinstale o APK antigo;
+- instale o APK novo;
+- sincronize novamente a partir do PC.
 
-Se o Windows bloquear a porta, execute LIBERAR_PORTA_45454.bat como administrador.
+Se voce usa APK Release assinado com a mesma chave configurada no GitHub,
+a instalacao deve atualizar normalmente.
 
-BANCO
-Este pacote nao contem sos_financa.db e nao substitui seu banco local.
+IMPORTANTE
+- PC e celular na mesma rede Wi-Fi.
+- No PC, deixe a janela de sincronizacao aberta.
+- Porta fixa: 45454.
+- Nao existe mais campo de porta/chave na tela nova do celular.
+- Nenhum arquivo .db faz parte deste pacote.
