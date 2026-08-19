@@ -1,0 +1,34 @@
+SOS FINANCA V3.0.0 FINAL - WINDOWS + ANDROID
+
+PARA ATUALIZAR O GITHUB:
+
+1. Faca um BACKUP no SOS Financa V2 instalado.
+2. Extraia este ZIP.
+3. Copie TODO o conteudo desta pasta para a pasta do seu repositorio SOS-Financa.
+4. Substitua os arquivos antigos.
+5. NAO apague a pasta oculta .git do seu repositorio.
+6. Execute 06_SUBIR_OU_ATUALIZAR_GITHUB.bat.
+7. No GitHub, abra Actions.
+8. Aguarde Build Windows e Build Android.
+
+WINDOWS:
+- Artifact: SOS-Financa-Windows
+- Extraia e instale o EXE por cima da V2.
+
+ANDROID PARA TESTE:
+- Sem chave Release configurada, o GitHub gera SOS-Financa-Android-TESTE.
+- Nao coloque dados reais nessa build de teste.
+
+ANDROID DEFINITIVO:
+- Execute 08_CRIAR_CHAVE_ANDROID.bat.
+- Adicione no GitHub os Secrets descritos no README.
+- Rode Build Android novamente.
+- Baixe SOS-Financa-Android-Release.
+- Guarde a chave JKS e a senha; elas serao necessarias nas atualizacoes futuras.
+
+DOCUMENTACAO COMPLETA:
+- README.md
+- docs\ANDROID_V3.md
+- docs\COMO_ATUALIZAR_V3.md
+- docs\DADOS_PARA_TESTE.md
+- docs\RELATORIO_QA_V3.0.0.md

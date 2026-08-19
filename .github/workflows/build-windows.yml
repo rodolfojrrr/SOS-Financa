@@ -5,9 +5,13 @@ name: Build Windows
   push:
     branches: [main]
 
+permissions:
+  contents: read
+
 jobs:
   windows:
     runs-on: windows-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - name: Preparar Node.js LTS
@@ -22,13 +26,15 @@ jobs:
         with:
           workspaces: './src-tauri -> target'
       - name: Instalar Tauri CLI
-        run: cargo install tauri-cli --version "^2.0.0" --locked
+        run: cargo install tauri-cli --version '^2.0.0' --locked
       - name: Testar regras financeiras
         run: node tests/finance.test.js
       - name: Testar armazenamento da prévia
         run: node tests/storage.test.js
       - name: Testar estrutura SQLite
         run: python tests/schema_test.py
+      - name: Testar configuração de release
+        run: python tests/release_test.py
       - name: Gerar instalador
         run: cargo tauri build
       - name: Publicar instalador NSIS

@@ -44,3 +44,18 @@
 @media(max-width:1150px){.quick-manage-grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:900px){.quick-manage-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.quick-manage{padding:11px}.card-manage-head{align-items:flex-start;flex-direction:column}.card-manage-head .section-actions{width:100%}.compact-purchases{grid-template-columns:1fr}.card-detail .panel-head{align-items:flex-start;flex-direction:column}.card-detail .section-actions{width:100%}}
 @media(max-width:420px){.quick-manage-grid{grid-template-columns:1fr 1fr}.quick-manage small{display:none}}
+
+/* V3 - acabamento mobile nativo */
+@media(max-width:900px){
+  .topbar{height:calc(65px + env(safe-area-inset-top));padding-top:env(safe-area-inset-top)}
+  .setup-hero{padding-top:calc(34px + env(safe-area-inset-top))}
+  .toast-root{top:calc(12px + env(safe-area-inset-top));right:12px;left:12px;align-items:flex-end}
+  .toast{max-width:min(420px,100%)}
+}
+@media(pointer:coarse){
+  button{-webkit-tap-highlight-color:transparent}
+  .action-btn{width:38px;height:38px}
+  .form-field input,.form-field select{min-height:46px}
+  .primary-btn,.secondary-btn,.danger-btn,.soft-btn{min-height:44px}
+  .mobile-item{min-height:50px}
+}

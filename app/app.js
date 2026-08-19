@@ -6,6 +6,31 @@
   const toastRoot = document.getElementById('toast-root');
   const ui = { state: null, route: 'home', month: F.monthKey(new Date()), manageTab: 'transactions', cardManageId: null };
 
+  function historyPayload(modal = false) {
+    return { sosFinanca: true, route: ui.route, month: ui.month, manageTab: ui.manageTab, cardManageId: ui.cardManageId, modal };
+  }
+
+  function ensureHistory() {
+    if (!history.state?.sosFinanca) history.replaceState(historyPayload(false), '');
+  }
+
+  function pushHistory(modal = false) {
+    ensureHistory();
+    history.pushState(historyPayload(modal), '');
+  }
+
+  function replaceHistory(modal = false) {
+    ensureHistory();
+    history.replaceState(historyPayload(modal), '');
+  }
+
+  function closeModal(useBack = false) {
+    const hadModalHistory = Boolean(history.state?.sosFinanca && history.state.modal);
+    modalRoot.innerHTML = '';
+    if (useBack && hadModalHistory && history.length > 1) history.back();
+    else if (hadModalHistory) replaceHistory(false);
+  }
+
   const e = value => String(value ?? '').replace(/[&<>'"]/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', "'":'&#39;', '"':'&quot;' }[ch]));
   const num = v => Number(v || 0);
   const pct = (a, b) => b > 0 ? Math.min(100, Math.round(a / b * 100)) : 0;
@@ -263,7 +288,7 @@
   async function settingsPage(){
     let info={path:S.isNative()?'Banco local':'Prévia',size:0,counts:{}}; try{info=await S.getDatabaseInfo()}catch{}
     const backups=await S.getBackups().catch(()=>[]);
-    return shell(`<div class="grid-equal"><section class="panel"><div class="panel-head"><h3>Esta instalação</h3><small>Sem conta online</small></div><form data-form="settings-profile"><div class="form-grid"><div class="form-field"><label>Nome</label><input name="name" value="${e(ui.state.profile?.name||'')}" placeholder="Usuário"></div><div class="form-field"><label>Uso</label><select name="usageMode"><option value="household" ${selected(ui.state.profile?.usageMode,'household')}>Gestão da casa</option><option value="personal" ${selected(ui.state.profile?.usageMode,'personal')}>Finanças pessoais</option></select></div><div class="form-field full"><label>Tema</label><select name="theme"><option value="system" ${selected(ui.state.profile?.theme,'system')}>Automático do sistema</option><option value="light" ${selected(ui.state.profile?.theme,'light')}>Claro</option><option value="dark" ${selected(ui.state.profile?.theme,'dark')}>Escuro</option></select></div></div><div style="height:12px"></div><button class="primary-btn btn-sm" type="submit">Salvar preferências</button></form></section><section class="panel"><div class="panel-head"><h3>Banco local</h3><small>Dados deste aparelho</small></div><div class="settings-grid"><div class="info-box"><span>Local</span><strong>${e(info.path||'')}</strong></div><div class="info-box"><span>Tamanho</span><strong>${formatBytes(info.size||0)}</strong></div></div><div class="alert-strip" style="margin:14px 0 0">${icon('lock')}<div><strong>Banco individual</strong><span>Esta instalação não compartilha dados financeiros com outros usuários.</span></div></div></section></div><div class="grid-equal"><section class="panel"><div class="panel-head"><div><h3>Backup</h3><small>Crie uma cópia antes de alterações importantes</small></div><button class="primary-btn btn-sm" data-action="backup">${icon('download')} Fazer backup</button></div>${S.isNative()?(backups.length?`<div class="list">${backups.slice(0,8).map(b=>`<div class="list-row"><div class="row-icon">${icon('download')}</div><div class="row-main"><strong>${e(b.name)}</strong><span>${formatBytes(b.size)}</span></div><button class="secondary-btn btn-sm" data-restore="${e(b.name)}">Restaurar</button></div>`).join('')}</div>`:empty('Nenhum backup ainda','Crie o primeiro backup local do banco SQLite.','download')):`<div class="alert-strip warn">${icon('info')}<div><strong>Modo de prévia</strong><span>A prévia HTML exporta JSON. O app instalado usa backup real do SQLite.</span></div></div>`}</section><section class="panel"><div class="panel-head"><h3>Sincronização PC ↔ celular</h3><small>Somente do mesmo usuário</small></div><div class="alert-strip warn">${icon('refresh')}<div><strong>Reservada para a próxima etapa</strong><span>A V2 mantém o banco preparado com IDs únicos, mas ainda não ativa sincronização Wi‑Fi antes de validarmos a nova usabilidade com dados reais.</span></div></div><div class="info-box"><span>Regra já definida</span><strong>Seu PC ↔ seu celular. Nunca entre pessoas diferentes.</strong></div></section></div>`, 'Configurações', 'Instalação local, backup e preferências');
+    return shell(`<div class="grid-equal"><section class="panel"><div class="panel-head"><h3>Esta instalação</h3><small>Sem conta online</small></div><form data-form="settings-profile"><div class="form-grid"><div class="form-field"><label>Nome</label><input name="name" value="${e(ui.state.profile?.name||'')}" placeholder="Usuário"></div><div class="form-field"><label>Uso</label><select name="usageMode"><option value="household" ${selected(ui.state.profile?.usageMode,'household')}>Gestão da casa</option><option value="personal" ${selected(ui.state.profile?.usageMode,'personal')}>Finanças pessoais</option></select></div><div class="form-field full"><label>Tema</label><select name="theme"><option value="system" ${selected(ui.state.profile?.theme,'system')}>Automático do sistema</option><option value="light" ${selected(ui.state.profile?.theme,'light')}>Claro</option><option value="dark" ${selected(ui.state.profile?.theme,'dark')}>Escuro</option></select></div></div><div style="height:12px"></div><button class="primary-btn btn-sm" type="submit">Salvar preferências</button></form></section><section class="panel"><div class="panel-head"><h3>Banco local</h3><small>Dados deste aparelho</small></div><div class="settings-grid"><div class="info-box"><span>Local</span><strong>${e(info.path||'')}</strong></div><div class="info-box"><span>Tamanho</span><strong>${formatBytes(info.size||0)}</strong></div></div><div class="alert-strip" style="margin:14px 0 0">${icon('lock')}<div><strong>Banco individual</strong><span>Esta instalação não compartilha dados financeiros com outros usuários.</span></div></div></section></div><div class="grid-equal"><section class="panel"><div class="panel-head"><div><h3>Backup</h3><small>Crie uma cópia antes de alterações importantes</small></div><button class="primary-btn btn-sm" data-action="backup">${icon('download')} Fazer backup</button></div>${S.isNative()?(backups.length?`<div class="list">${backups.slice(0,8).map(b=>`<div class="list-row"><div class="row-icon">${icon('download')}</div><div class="row-main"><strong>${e(b.name)}</strong><span>${formatBytes(b.size)}</span></div><button class="secondary-btn btn-sm" data-restore="${e(b.name)}">Restaurar</button></div>`).join('')}</div>`:empty('Nenhum backup ainda','Crie o primeiro backup local do banco SQLite.','download')):`<div class="alert-strip warn">${icon('info')}<div><strong>Modo de prévia</strong><span>A prévia HTML exporta JSON. O app instalado usa backup real do SQLite.</span></div></div>`}</section><section class="panel"><div class="panel-head"><h3>Sincronização PC ↔ celular</h3><small>Somente do mesmo usuário</small></div><div class="alert-strip warn">${icon('refresh')}<div><strong>Reservada para a próxima etapa</strong><span>A V3 funciona localmente no PC e no Android. A sincronização Wi‑Fi entre os dois aparelhos ainda não está ativada para evitar conflitos em dados financeiros.</span></div></div><div class="info-box"><span>Regra já definida</span><strong>Seu PC ↔ seu celular. Nunca entre pessoas diferentes.</strong></div></section></div>`, 'Configurações', 'Instalação local, backup e preferências');
   }
   function formatBytes(n){n=Number(n||0);if(n<1024)return `${n} B`;if(n<1048576)return `${(n/1024).toFixed(1)} KB`;return `${(n/1048576).toFixed(1)} MB`}
 
@@ -285,7 +310,7 @@
   function cardOptions(){return options(ui.state.cards||[],x=>x.id,x=>x.name,'Selecione o cartão')}
   function debtOptions(){return options((ui.state.debts||[]).filter(d=>F.debtIsOpen(ui.state,d)),x=>x.id,x=>x.name,'Selecione a dívida')}
 
-  function openModal(title,subtitle,body,formType,wide=false){modalRoot.innerHTML=`<div class="modal-backdrop" data-close-modal><div class="modal ${wide?'wide':''}" role="dialog" aria-modal="true"><div class="modal-head"><div><h2>${e(title)}</h2><p>${e(subtitle)}</p></div><button class="modal-close" type="button" data-close-modal>${icon('close')}</button></div><form data-form="${formType}"><div class="modal-body">${body}</div><div class="modal-foot"><button type="button" class="secondary-btn" data-close-modal>Cancelar</button><button type="submit" class="primary-btn">Salvar</button></div></form></div></div>`;}
+  function openModal(title,subtitle,body,formType,wide=false){modalRoot.innerHTML=`<div class="modal-backdrop" data-close-modal><div class="modal ${wide?'wide':''}" role="dialog" aria-modal="true"><div class="modal-head"><div><h2>${e(title)}</h2><p>${e(subtitle)}</p></div><button class="modal-close" type="button" data-close-modal>${icon('close')}</button></div><form data-form="${formType}"><div class="modal-body">${body}</div><div class="modal-foot"><button type="button" class="secondary-btn" data-close-modal>Cancelar</button><button type="submit" class="primary-btn">Salvar</button></div></form></div></div>`;if(!history.state?.modal)pushHistory(true);}
   function field(label,name,value='',type='text',extra='',full=false,hint=''){return `<div class="form-field ${full?'full':''}"><label>${e(label)}</label><input type="${type}" name="${name}" value="${e(value??'')}" ${extra}>${hint?`<div class="form-hint">${e(hint)}</div>`:''}</div>`}
   function selectField(label,name,html,value='',full=false){return `<div class="form-field ${full?'full':''}"><label>${e(label)}</label><select name="${name}" data-value="${e(value??'')}">${html}</select></div>`}
   function textarea(label,name,value='',full=true){return `<div class="form-field ${full?'full':''}"><label>${e(label)}</label><textarea name="${name}">${e(value??'')}</textarea></div>`}
@@ -319,7 +344,7 @@
       const positive=(name,label)=>{const value=cents(name);if(value<=0)throw new Error(`${label} precisa ser maior que zero.`);return value};
       const optionalInt=(name,min,max)=>{if(!g(name))return 0;const value=num(g(name));if(!Number.isInteger(value)||value<min||value>max)throw new Error(`O valor de ${name} precisa estar entre ${min} e ${max}.`);return value};
       const assertCategoryKind=(categoryId,kind)=>{if(!categoryId)return;const category=F.byId(ui.state,'categories',categoryId);if(!category||category.kind!==kind)throw new Error('A categoria escolhida não corresponde ao tipo do lançamento.')};
-      if(type==='setup'||type==='settings-profile'){await S.saveEntity('profile',{name:g('name')||'Usuário',usageMode:g('usageMode')||'personal',theme:g('theme')||ui.state?.profile?.theme||'system'});await reload();modalRoot.innerHTML='';toast('Preferências salvas');return}
+      if(type==='setup'||type==='settings-profile'){await S.saveEntity('profile',{name:g('name')||'Usuário',usageMode:g('usageMode')||'personal',theme:g('theme')||ui.state?.profile?.theme||'system'});await reload();closeModal(false);toast('Preferências salvas');return}
       if(type==='quick'||type==='transaction'){const kind=g('kind')||'expense';assertCategoryKind(g('categoryId'),kind);await S.saveEntity('transaction',{id:g('id')||undefined,kind,amountCents:positive('amount','O valor'),description:g('description')||(kind==='income'?'Receita':'Despesa'),date:g('date')||F.todayKey(),categoryId:g('categoryId')||null,accountId:g('accountId')||null,paymentMethod:g('paymentMethod'),notes:g('notes')});}
       else if(type==='account')await S.saveEntity('account',{id:g('id')||undefined,name:g('name')||g('institution')||'Minha conta',institution:g('institution'),accountType:g('accountType')||'Conta corrente',openingBalanceCents:cents('openingBalance')});
       else if(type==='transfer'){if(!g('fromAccountId')||!g('toAccountId'))throw new Error('Escolha as duas contas.');if(g('fromAccountId')===g('toAccountId'))throw new Error('Escolha contas diferentes.');await S.saveEntity('transfer',{fromAccountId:g('fromAccountId'),toAccountId:g('toAccountId'),amountCents:positive('amount','O valor'),date:g('date')||F.todayKey(),notes:g('notes')});}
@@ -333,18 +358,18 @@
       else if(type==='category'){const kind=g('kind')||'expense',parent=g('parentId')?F.byId(ui.state,'categories',g('parentId')):null;if(parent&&parent.kind!==kind)throw new Error('Uma subcategoria precisa ter o mesmo tipo da categoria principal.');await S.saveEntity('category',{id:g('id')||undefined,name:g('name')||'Nova categoria',kind,parentId:g('parentId')||null,icon:g('icon')||'tag'});}
       else if(type==='budget'){if(!g('categoryId'))throw new Error('Escolha a categoria.');const month=g('monthKey')||ui.month,existing=(ui.state.budgets||[]).find(b=>b.categoryId===g('categoryId')&&b.monthKey===month);await S.saveEntity('budget',{id:g('id')||existing?.id||undefined,categoryId:g('categoryId'),monthKey:month,limitCents:positive('limit','O limite')});}
       else if(type==='goal')await S.saveEntity('goal',{id:g('id')||undefined,name:g('name')||'Meta financeira',targetCents:positive('target','O valor alvo'),currentCents:cents('current'),dueDate:g('dueDate')||null,status:'active'});
-      modalRoot.innerHTML='';await reload();toast('Salvo com sucesso');
+      closeModal(false);await reload();toast('Salvo com sucesso');
     }catch(err){toast(err?.message||String(err),'danger')}
   }
 
   function getEntity(type,id){const map={account:'accounts',category:'categories',transaction:'transactions',commitment:'commitments',card:'cards',card_purchase:'cardPurchases',debt:'debts',budget:'budgets',goal:'goals'};return (ui.state[map[type]]||[]).find(x=>x.id===id)}
 
   root.addEventListener('click',async ev=>{
-    const route=ev.target.closest('[data-route]');if(route){ui.route=route.dataset.route;await renderApp();return}
+    const route=ev.target.closest('[data-route]');if(route){ui.route=route.dataset.route;ui.cardManageId=null;await renderApp();pushHistory(false);return}
     const shift=ev.target.closest('[data-month-shift]');if(shift){ui.month=F.addMonths(ui.month,Number(shift.dataset.monthShift));await renderApp();return}
     const mt=ev.target.closest('[data-manage-tab]');if(mt){ui.manageTab=mt.dataset.manageTab;await renderApp();return}
-    const cardOpen=ev.target.closest('[data-card-open]');if(cardOpen){ui.cardManageId=cardOpen.dataset.cardOpen;await renderApp();return}
-    const cardRoute=ev.target.closest('[data-card-open-route]');if(cardRoute){ui.cardManageId=cardRoute.dataset.cardOpenRoute;ui.route='cards';await renderApp();return}
+    const cardOpen=ev.target.closest('[data-card-open]');if(cardOpen){ui.cardManageId=cardOpen.dataset.cardOpen;await renderApp();pushHistory(false);return}
+    const cardRoute=ev.target.closest('[data-card-open-route]');if(cardRoute){ui.cardManageId=cardRoute.dataset.cardOpenRoute;ui.route='cards';await renderApp();pushHistory(false);return}
     if(ev.target.closest('[data-theme-toggle]')){const next=document.documentElement.dataset.theme==='dark'?'light':'dark';await S.saveEntity('profile',{...ui.state.profile,theme:next});await reload();return}
     const action=ev.target.closest('[data-action]');if(action){const a=action.dataset.action,id=action.dataset.id;if(a==='quick')quickForm();else if(a==='transaction')openEntityForm('transaction');else if(a==='transfer')openEntityForm('transfer');else if(a==='commitment')openEntityForm('commitment');else if(a==='fixed-income')openEntityForm('commitment',{kind:'income'});else if(a==='fixed-expense')openEntityForm('commitment',{kind:'expense'});else if(a==='pay-commitment')openEntityForm('commitment_payment',getEntity('commitment',id));else if(a==='card')openEntityForm('card');else if(a==='card-purchase')openEntityForm('card_purchase');else if(a==='card-purchase-for')openEntityForm('card_purchase',{cardId:id});else if(a==='card-payment')openEntityForm('card_payment');else if(a==='card-payment-for')openEntityForm('card_payment',{cardId:id,invoiceMonth:ui.month});else if(a==='debt')openEntityForm('debt');else if(a==='debt-payment')openEntityForm('debt_payment');else if(a==='account')openEntityForm('account');else if(a==='category')openEntityForm('category');else if(a==='budget')openEntityForm('budget');else if(a==='goal')openEntityForm('goal');else if(a==='backup'){try{const p=await S.makeBackup();toast(`Backup criado: ${p}`);await renderApp()}catch(err){toast(err.message,'danger')}}return}
     const edit=ev.target.closest('[data-edit]');if(edit){openEntityForm(edit.dataset.edit,getEntity(edit.dataset.edit,edit.dataset.id));return}
@@ -353,11 +378,14 @@
   });
 
   root.addEventListener('submit',ev=>{if(ev.target.matches('form[data-form]')){ev.preventDefault();saveForm(ev.target)}});
-  modalRoot.addEventListener('click',ev=>{const direct=ev.target.matches?.('.modal-backdrop,[data-close-modal]'),button=ev.target.closest?.('button[data-close-modal]');if(direct||button)modalRoot.innerHTML=''});
+  modalRoot.addEventListener('click',ev=>{const direct=ev.target.matches?.('.modal-backdrop,[data-close-modal]'),button=ev.target.closest?.('button[data-close-modal]');if(direct||button)closeModal(true)});
   modalRoot.addEventListener('submit',ev=>{if(ev.target.matches('form[data-form]')){ev.preventDefault();saveForm(ev.target)}});
-  document.addEventListener('keydown',ev=>{if(ev.key==='Escape')modalRoot.innerHTML=''});
+  document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&modalRoot.innerHTML)closeModal(true)});
+
+  window.addEventListener('popstate',async ev=>{const state=ev.state;if(!state?.sosFinanca)return;ui.route=state.route||'home';ui.month=state.month||ui.month;ui.manageTab=state.manageTab||ui.manageTab;ui.cardManageId=state.cardManageId||null;modalRoot.innerHTML='';await renderApp();});
 
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{if(ui.state?.profile?.theme==='system')applyTheme()});
 
+  ensureHistory();
   reload();
 })();

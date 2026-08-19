@@ -154,6 +154,20 @@ with sync_playwright() as p:
     overflow_320=page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
     ok(overflow_320, 'layout de 320 px continua sem rolagem horizontal global')
 
+    page.locator('.mobile-item[data-route="home"]').click()
+    page.wait_for_timeout(50)
+    page.locator('.mobile-item[data-route="cards"]').click()
+    page.wait_for_timeout(50)
+    page.go_back()
+    page.wait_for_timeout(80)
+    ok(page.get_by_text('Visão geral').first.is_visible(), 'botão Voltar do Android consegue retornar para a tela anterior do app')
+    page.locator('button.fab').click()
+    page.wait_for_timeout(50)
+    ok(page.locator('#modal-root .modal').is_visible(), 'gasto rápido abre modal no mobile')
+    page.go_back()
+    page.wait_for_timeout(80)
+    ok(page.locator('#modal-root .modal').count() == 0, 'botão Voltar do Android fecha o modal antes de sair do app')
+
     ok(not errors, f'interface roda sem erros de JavaScript/console: {errors}')
     browser.close()
 
