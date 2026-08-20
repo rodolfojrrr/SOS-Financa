@@ -1,4 +1,4 @@
-# SOS Finança — V3.1.0
+# SOS Finança — V3.2.0
 
 Aplicativo financeiro **local e individual** para Windows e Android.
 
@@ -129,3 +129,12 @@ A sincronização desta versão é propositalmente **PC → celular**. O PC é a
 5. Confirme `Receber do PC`.
 
 A sessão expira em 10 minutos. O pacote usa autenticação HMAC, criptografia ChaCha20-Poly1305 e SHA-256 para verificar integridade. Não use em Wi-Fi público.
+
+
+## Sincronização local 3.2
+
+A sincronização PC → Android foi reescrita. O protocolo TCP próprio, a chave temporária, HMAC e criptografia do transporte foram removidos do fluxo de pareamento.
+
+Agora o Windows abre temporariamente um pequeno servidor HTTP local na porta 45454. O Android usa um cliente HTTP para testar `/ping` e baixar `/sos-financa.db`. O banco recebido é validado pelo cabeçalho do SOS Finança, limite de tamanho, SHA-256 e `PRAGMA integrity_check` antes de substituir o banco local. Um backup do celular é criado antes da importação.
+
+O servidor fica disponível por cerca de 3 minutos e encerra após um download. Use somente em uma rede Wi-Fi privada/confiável.
