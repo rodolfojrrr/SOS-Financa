@@ -12,7 +12,7 @@
       ['Dívidas', 'expense', 'receipt'], ['Pequenos gastos', 'expense', 'coins'], ['Outros', 'expense', 'tag']
     ].map(([name, kind, icon], index) => ({ id: `browser-cat-${index + 1}`, name, kind, icon, parentId: null })),
     transactions: [], commitments: [], commitmentPayments: [], cards: [], cardPurchases: [], cardPayments: [],
-    debts: [], debtPayments: [], budgets: [], transfers: [], goals: []
+    debts: [], debtPayments: [], budgets: [], transfers: [], goals: [], trash: []
   });
 
   const entityMap = {
@@ -93,7 +93,33 @@
         const principal = (data.debtPayments || []).filter(x => x.debtId === id).reduce((a, x) => a + Number(x.principalCents || x.amountCents || 0), 0);
         if (debt && Math.max(0, Number(debt.balanceCents || 0) - principal) > 0) throw new Error('Quite ou ajuste o saldo desta dívida antes de arquivá-la.');
       }
+      const item = (data[collection] || []).find(item => item.id === id);
+      if (item) {
+        data.trash = data.trash || [];
+        data.trash.push({ entityType, id, title: item.name || item.description || item.monthKey || 'Registro', deletedAt: new Date().toISOString(), item: { ...item } });
+      }
       data[collection] = (data[collection] || []).filter(item => item.id !== id);
+      writeLocal(data);
+    },
+    async getTrash() {
+      if (hasTauri()) return invoke('get_trash');
+      return (readLocal().trash || []).slice().sort((a,b)=>(b.deletedAt||'').localeCompare(a.deletedAt||''));
+    },
+    async restoreArchived(entityType, id) {
+      if (hasTauri()) return invoke('restore_archived', { entityType, id });
+      const data = readLocal();
+      const index = (data.trash || []).findIndex(x => x.entityType === entityType && x.id === id);
+      if (index < 0) return;
+      const entry = data.trash[index];
+      const collection = entityMap[entityType];
+      if (collection && entry.item) (data[collection] ||= []).push(entry.item);
+      data.trash.splice(index,1);
+      writeLocal(data);
+    },
+    async deleteForever(entityType, id) {
+      if (hasTauri()) return invoke('delete_forever', { entityType, id });
+      const data = readLocal();
+      data.trash = (data.trash || []).filter(x => !(x.entityType === entityType && x.id === id));
       writeLocal(data);
     },
     async makeBackup() {
@@ -131,9 +157,12 @@
     async stopSyncServer() {
       if (hasTauri()) return invoke('stop_sync_server');
     },
-    async receiveSyncFromPc(host) {
-      if (hasTauri()) return invoke('receive_sync_from_pc', { host });
+    async syncWithPc(host) {
+      if (hasTauri()) return invoke('sync_with_pc', { host });
       throw new Error('A sincronização Wi-Fi está disponível somente no aplicativo instalado.');
+    },
+    async receiveSyncFromPc(host) {
+      return this.syncWithPc(host);
     },
     resetPreview() {
       if (!hasTauri()) localStorage.removeItem(KEY);

@@ -5,7 +5,7 @@ cd /d "%~dp0"
 title SOS Financa - Gerar APK Android
 
 echo ==============================================================
-echo               SOS FINANCA V3 - BUILD ANDROID
+echo               SOS FINANCA V4 - BUILD ANDROID
 echo ==============================================================
 echo.
 

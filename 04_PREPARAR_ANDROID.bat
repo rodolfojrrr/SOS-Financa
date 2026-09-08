@@ -5,7 +5,7 @@ cd /d "%~dp0"
 title SOS Financa - Preparar Android
 
 echo ==============================================================
-echo            SOS FINANCA V3 - PREPARAR ANDROID
+echo            SOS FINANCA V4 - PREPARAR ANDROID
 echo ==============================================================
 echo.
 

@@ -16,7 +16,8 @@ conn.executescript(schema)
 tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'")}
 expected = {
     'profile', 'accounts', 'categories', 'transactions', 'commitments', 'commitment_payments',
-    'cards', 'card_purchases', 'card_payments', 'debts', 'debt_payments', 'budgets', 'transfers', 'goals'
+    'cards', 'card_purchases', 'card_payments', 'debts', 'debt_payments', 'budgets', 'transfers', 'goals',
+    'sync_tombstones'
 }
 assert expected <= tables, f'tabelas ausentes: {sorted(expected - tables)}'
 print(f'OK 01 - esquema cria as {len(expected)} tabelas principais')
@@ -70,4 +71,22 @@ snapshot = legacy.execute("SELECT expected_amount_cents FROM commitment_payments
 assert snapshot == 10990
 print('OK 09 - migração de banco antigo preenche o valor esperado usando a recorrência existente')
 
-print('\nTodos os 9 testes estruturais do SQLite passaram.')
+assert 'ensure_column(&conn, "profile", "folder_prefs"' in text
+print('OK 10 - migração V4 adiciona preferências das pastas')
+assert 'ensure_column(&conn, "profile", "notifications_enabled"' in text and 'ensure_column(&conn, "profile", "notification_days"' in text
+print('OK 11 - migração V4 adiciona preferências de notificações')
+assert 'ensure_column(&conn, "cards", "color"' in text and 'ensure_column(&conn, "cards", "icon"' in text and 'ensure_column(&conn, "cards", "sort_order"' in text
+print('OK 12 - migração V4 adiciona personalização das pastas de cartões')
+assert 'pub fn trash' in text and 'pub fn restore_archived' in text and 'pub fn delete_forever' in text
+print('OK 13 - backend SQLite possui lixeira, restauração e exclusão permanente')
+assert 'pub fn merge_sync_database' in text and 'excluded.updated_at >' in text
+print('OK 14 - backend possui mesclagem bidirecional baseada em updated_at')
+
+tombstone_columns = {row[1] for row in conn.execute('PRAGMA table_info(sync_tombstones)')}
+assert {'entity_type','entity_id','deleted_at'} <= tombstone_columns
+print('OK 15 - exclusões permanentes possuem tombstone para não ressuscitar após sincronização')
+
+assert 'record_tombstone' in text and 'apply_sync_tombstones' in text and 'remote.sync_tombstones' in text
+print('OK 16 - tombstones locais e remotos são aplicados durante a mesclagem')
+
+print('\nTodos os 16 testes estruturais do SQLite passaram.')

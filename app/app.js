@@ -4,10 +4,10 @@
   const root = document.getElementById('app');
   const modalRoot = document.getElementById('modal-root');
   const toastRoot = document.getElementById('toast-root');
-  const ui = { state: null, route: 'home', month: F.monthKey(new Date()), manageTab: 'transactions', cardManageId: null };
+  const ui = { state: null, route: 'home', month: F.monthKey(new Date()), manageTab: 'transactions', manageFolder: null, manageEditMode: false, cardManageId: null, cardEditMode: false };
 
   function historyPayload(modal = false) {
-    return { sosFinanca: true, route: ui.route, month: ui.month, manageTab: ui.manageTab, cardManageId: ui.cardManageId, modal };
+    return { sosFinanca: true, route: ui.route, month: ui.month, manageTab: ui.manageTab, manageFolder: ui.manageFolder, manageEditMode: ui.manageEditMode, cardManageId: ui.cardManageId, cardEditMode: ui.cardEditMode, modal };
   }
 
   function ensureHistory() {
@@ -52,7 +52,7 @@
     menu:'M4 6h16 M4 12h16 M4 18h16', moon:'M20 15a8 8 0 0 1-11-11 8.5 8.5 0 1 0 11 11z', sun:'M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10 M12 2v2 M12 20v2 M4.9 4.9l1.4 1.4 M17.7 17.7l1.4 1.4 M2 12h2 M20 12h2 M4.9 19.1l1.4-1.4 M17.7 6.3l1.4-1.4',
     download:'M12 3v12 M7 10l5 5 5-5 M4 21h16', refresh:'M20 7h-5V2 M4 17h5v5 M19 12a7 7 0 0 0-12-5L4 10 M5 12a7 7 0 0 0 12 5l3-3',
     lock:'M6 10h12v11H6z M8 10V7a4 4 0 0 1 8 0v3', info:'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20 M12 10v7 M12 7h.01',
-    search:'M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16 M17 17l5 5', more:'M5 12h.01 M12 12h.01 M19 12h.01'
+    search:'M11 19a8 8 0 1 1 0-16 8 8 0 0 1 0 16 M17 17l5 5', more:'M5 12h.01 M12 12h.01 M19 12h.01', folder:'M3 6h7l2 2h9v11H3z', folderOpen:'M3 7h7l2 2h9l-2 10H3z', bell:'M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9 M10 21h4', restoreIcon:'M4 10a8 8 0 1 1 2 8 M4 10V4 M4 10h6', palette:'M12 3a9 9 0 1 0 0 18h1.5a2.5 2.5 0 0 0 0-5H12a2 2 0 0 1 0-4h4a5 5 0 0 0-4-9z'
   };
   function icon(name, cls='') {
     const d = icons[name] || icons.receipt;
@@ -75,6 +75,7 @@
     ui.state = await S.getState();
     applyTheme();
     if (render) renderApp();
+    maybeSendDailyNotification().catch(() => {});
   }
 
   function navItem(route, label, ic, badge='') {
@@ -310,6 +311,214 @@
     root.innerHTML=(pages[ui.route]||homePage)();
   }
 
+  // ===== V4.0 — organização por pastas, lixeira, alertas acionáveis e sync bidirecional =====
+  const MANAGE_FOLDERS = [
+    {key:'transactions',label:'Movimentações',desc:'Gastos, receitas e transferências',icon:'receipt',color:'#18765a'},
+    {key:'fixed_income',label:'Receitas fixas',desc:'Salário e entradas recorrentes',icon:'wallet',color:'#287f69'},
+    {key:'fixed_expense',label:'Contas fixas',desc:'Contas que voltam todos os meses',icon:'calendar',color:'#7b6a2e'},
+    {key:'cards',label:'Cartões',desc:'Pastas, compras e faturas',icon:'card',color:'#235f78'},
+    {key:'debts',label:'Dívidas',desc:'Empréstimos e financiamentos',icon:'receipt',color:'#844747'},
+    {key:'catalogs',label:'Contas e categorias',desc:'Cadastros usados pelos lançamentos',icon:'folder',color:'#596b61'},
+    {key:'budget',label:'Planejamento',desc:'Orçamentos e metas',icon:'target',color:'#6c5684'},
+    {key:'trash',label:'Lixeira',desc:'Restaurar ou excluir permanentemente',icon:'trash',color:'#6b5353'}
+  ];
+
+  function safeColor(value, fallback='#176b52') {
+    return /^#[0-9a-f]{6}$/i.test(String(value||'')) ? String(value) : fallback;
+  }
+  function safeIcon(value, fallback='folder') { return icons[value] ? value : fallback; }
+  function folderPrefs(){ return ui.state?.profile?.folderPrefs || {}; }
+  function manageFolderDef(key){
+    const base=MANAGE_FOLDERS.find(x=>x.key===key)||MANAGE_FOLDERS[0], pref=folderPrefs()[key]||{};
+    return {...base,...pref,key,icon:safeIcon(pref.icon,base.icon),color:safeColor(pref.color,base.color)};
+  }
+  function sortedManageFolders(){
+    return MANAGE_FOLDERS.map((x,i)=>({...manageFolderDef(x.key),order:Number(folderPrefs()[x.key]?.order ?? i)})).sort((a,b)=>a.order-b.order);
+  }
+
+  function shell(content, title, subtitle='') {
+    const overdueCount = F.dueBuckets(ui.state, F.monthKey(new Date())).overdue.length;
+    return `<div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand"><div class="brand-mark">${icon('logo')}</div><div><strong>SOS Finança</strong><small>Seu dinheiro, sob controle</small></div></div>
+        <div class="nav-section">CONSULTAR</div>
+        ${navItem('home','Início','home',overdueCount || '')}
+        ${navItem('month','Mês','calendar')}
+        ${navItem('accounts','Contas','wallet')}
+        ${navItem('cards','Cartões','card')}
+        ${navItem('debts','Dívidas','receipt')}
+        ${navItem('budget','Orçamento','target')}
+        ${navItem('reports','Relatórios','chart')}
+        <div class="nav-section">ORGANIZAR</div>
+        ${navItem('manage','Gerenciar','folder')}
+        ${navItem('trash','Lixeira','trash')}
+        <div class="sidebar-spacer"></div>
+        ${navItem('settings','Configurações','settings')}
+        <div class="sidebar-user"><div class="avatar">${e((ui.state.profile?.name || 'U').charAt(0).toUpperCase())}</div><div><strong>${e(ui.state.profile?.name || 'Usuário')}</strong><span>${ui.state.profile?.usageMode === 'household' ? 'Gestão da casa' : 'Finanças pessoais'}</span></div></div>
+      </aside>
+      <main class="main">
+        <header class="topbar">
+          <div class="page-heading"><h1>${e(title)}</h1><p>${e(subtitle)}</p></div>
+          <div class="top-actions">
+            <div class="month-picker"><button data-month-shift="-1" aria-label="Mês anterior">${icon('arrowLeft')}</button><span>${e(F.monthLabel(ui.month))}</span><button data-month-shift="1" aria-label="Próximo mês">${icon('arrowRight')}</button></div>
+            <button class="icon-btn" data-theme-toggle aria-label="Alternar tema">${icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon')}</button>
+            ${!['manage','trash'].includes(ui.route) ? `<button class="secondary-btn btn-sm" data-route="manage">${icon('folder')} Gerenciar</button>` : ''}
+          </div>
+        </header>
+        <div class="content">${content}</div>
+      </main>
+      <button class="fab" data-action="quick" title="Gasto rápido">${icon('plus')}</button>
+      <nav class="mobile-nav">
+        ${mobileItem('home','Início','home')}${mobileItem('month','Mês','calendar')}${mobileItem('cards','Cartões','card')}${mobileItem('debts','Dívidas','receipt')}${mobileItem('manage','Gerenciar','folder')}
+      </nav>
+    </div>`;
+  }
+
+  function mobileItem(route,label,ic){
+    const active = route==='manage' ? ['manage','trash','accounts','budget','reports','settings'].includes(ui.route) : ui.route===route;
+    return `<button class="mobile-item ${active?'active':''}" data-route="${route}">${icon(ic)}<span>${label}</span></button>`;
+  }
+
+  function attentionRows(st){
+    const due=F.dueBuckets(st,F.monthKey(new Date()));
+    const items=[...due.overdue.map(x=>({...x,bucket:'overdue'})),...due.next7.map(x=>({...x,bucket:'next7'}))].slice(0,6);
+    if(!items.length) return `<div class="alert-strip">${icon('check')}<div><strong>Nenhuma pendência urgente</strong><span>Os avisos acionáveis aparecerão aqui quando houver algo para pagar.</span></div></div>`;
+    return `<section class="panel attention-panel"><div class="panel-head"><div><h3>Precisa da sua atenção</h3><small>Clique no aviso para ir direto à conta</small></div><button class="link-btn" data-route="month">Ver mês</button></div><div class="attention-list">${items.map(x=>{
+      const remain=Math.max(0,num(x.amountCents)-num(x.paidCents));
+      return `<button class="attention-item ${x.bucket==='overdue'?'danger':'warn'}" data-alert-open-type="${e(x.type)}" data-alert-open-id="${e(x.id)}" data-alert-month="${e(F.monthKey(x.dueDate))}"><span class="attention-icon">${icon(x.type==='card'?'card':x.type==='debt'?'receipt':'calendar')}</span><span class="attention-main"><strong>${e(x.label)}</strong><small>${x.bucket==='overdue'?'Atrasado':'Vence em breve'} · ${e(F.dateLabel(x.dueDate))}</small></span><b>${F.money(remain||x.amountCents)}</b>${icon('chevronRight')}</button>`;
+    }).join('')}</div></section>`;
+  }
+
+  function homePage() {
+    const st=ui.state, key=ui.month, sm=F.monthSummary(st,key), balance=F.currentBalance(st);
+    const openDebts=(st.debts||[]).filter(d=>F.debtIsOpen(st,d));
+    const totalDebt=sum(openDebts.filter(F.debtHasKnownBalance),d=>F.debtBalance(st,d));
+    const unknownDebtCount=openDebts.filter(d=>!F.debtHasKnownBalance(d)).length;
+    const agenda=F.monthAgenda(st,key).filter(x=>x.kind==='expense').slice(0,6);
+    const cat=F.expenseByCategory(st,key).slice(0,5), catMax=Math.max(1,...cat.map(x=>x.amountCents));
+    const debts=openDebts.slice().sort((a,b)=>F.debtBalance(st,b)-F.debtBalance(st,a)).slice(0,4);
+    return shell(`<div class="hero-grid">
+      ${metric('Saldo disponível',F.money(balance),'Dinheiro nas contas agora',balance>=0?'good':'danger','wallet')}
+      ${metric('Dívida total conhecida',F.money(totalDebt),`${openDebts.length} dívida(s) em aberto${unknownDebtCount?` · ${unknownDebtCount} sem saldo informado`:''}`,totalDebt>0?'warn':'good','receipt')}
+      ${metric('A pagar no mês',F.money(sm.expensesPlanned),`Realizado: ${F.money(sm.expensesRealized)}`,sm.expensesPlanned>sm.incomePlanned?'warn':'','calendar')}
+      ${metric('Saldo previsto do mês',F.money(sm.projected),'Receitas menos compromissos do mês',sm.projected>=0?'good':'danger','chart')}
+    </div>${attentionRows(st)}
+    <div class="grid-2"><section class="panel"><div class="panel-head"><div><h3>Próximos compromissos</h3><small>${e(F.monthLabel(key))}</small></div><button class="link-btn" data-route="month">Ver mês completo</button></div>
+      ${agenda.length?`<div class="list">${agenda.map(agendaRow).join('')}</div>`:empty('Mês tranquilo','Nenhum compromisso financeiro cadastrado para este mês.','calendar')}
+    </section><section class="panel"><div class="panel-head"><div><h3>Onde o dinheiro está indo</h3><small>Despesas por categoria</small></div></div>
+      ${cat.length?cat.map(x=>`<div class="budget-row"><div class="budget-meta"><strong>${e(F.categoryName(st,x.categoryId))}</strong><span>${F.money(x.amountCents)}</span></div><div class="progress"><span style="width:${Math.max(4,Math.round(x.amountCents/catMax*100))}%"></span></div></div>`).join(''):empty('Ainda sem gastos','Os gastos registrados aparecem aqui por categoria.','chart')}
+    </section></div>
+    <div class="grid-equal"><section class="panel"><div class="panel-head"><div><h3>Mapa das dívidas</h3><small>Saldo devedor atual</small></div><button class="link-btn" data-route="debts">Ver central</button></div>
+      ${debts.length?`<div class="list">${debts.map(d=>`<div class="list-row"><div class="row-icon">${icon('receipt')}</div><div class="row-main"><strong>${e(d.name)}</strong><span>${e(d.creditor||debtTypeLabel(d.debtType))}</span></div><div class="row-amount">${F.debtHasKnownBalance(d)?F.money(F.debtBalance(st,d)):'Saldo não informado'}</div></div>`).join('')}</div>`:empty('Sem dívidas cadastradas','Se houver empréstimos ou financiamentos, registre em Gerenciar.','check')}
+    </section><section class="panel"><div class="panel-head"><div><h3>Orçamento do mês</h3><small>Limites por categoria</small></div><button class="link-btn" data-route="budget">Ver orçamento</button></div>${budgetMini(st,key)}</section></div>`, 'Visão geral', 'Situação financeira em uma única tela');
+  }
+
+  function cardsPage(){
+    const st=ui.state,key=ui.month,cards=(st.cards||[]).slice().sort((a,b)=>num(a.sortOrder)-num(b.sortOrder)||(a.name||'').localeCompare(b.name||''));
+    if(ui.cardManageId){
+      const card=cards.find(c=>c.id===ui.cardManageId);
+      if(card) return cardFolderPage(st,card,key);
+      ui.cardManageId=null;
+    }
+    const totalLimit=sum(cards,c=>c.limitCents), committed=sum(cards,c=>F.cardCommitted(st,c.id)), currentInvoices=sum(cards,c=>F.invoiceFor(st,c.id,key).amountCents);
+    return shell(`<div class="hero-grid">${metric('Limite total',F.money(totalLimit),'Todos os cartões','','card')}${metric('Limite comprometido',F.money(committed),'Compras ainda não quitadas',committed>totalLimit&&totalLimit>0?'danger':'warn','receipt')}${metric('Faturas do mês',F.money(currentInvoices),F.monthLabel(key),'','calendar')}${metric('Disponível estimado',totalLimit?F.money(Math.max(0,totalLimit-committed)):'Não informado',totalLimit?'Limite menos compras pendentes':'Limites são opcionais',totalLimit-committed>0?'good':'','wallet')}</div>
+      <div class="section-title v4-title"><div><h2>Meus cartões</h2><p>Cada cartão agora é uma pasta. Abra para ver fatura, compras e pagamentos.</p></div><div class="section-actions"><button class="secondary-btn btn-sm" data-action="toggle-card-organize">${icon('palette')} ${ui.cardEditMode?'Concluir':'Organizar'}</button><button class="primary-btn btn-sm" data-action="card">${icon('plus')} Novo cartão</button></div></div>
+      ${cards.length?`<div class="folder-grid card-folder-grid">${cards.map(c=>cardFolderTile(st,c,key)).join('')}</div>`:empty('Nenhum cartão cadastrado','Crie um cartão; cada um terá sua própria pasta personalizável.','card')}`, 'Cartões', 'Organizados como pastas, sem compras soltas');
+  }
+
+  function cardFolderTile(st,c,key){
+    const inv=F.invoiceFor(st,c.id,key),used=F.cardCommitted(st,c.id),color=safeColor(c.color,'#176b52'),ic=safeIcon(c.icon,'card');
+    return `<div class="folder-tile card-folder" style="--folder-color:${color}"><button class="folder-open" data-card-open="${e(c.id)}"><span class="folder-tab"></span><span class="folder-icon">${icon(ic)}</span><span class="folder-copy"><small>${e(c.bank||'Cartão')}</small><strong>${e(c.name||'Meu cartão')}</strong><span>${c.last4?`•••• ${e(c.last4)}`:'Abra para ver as compras'}</span></span><span class="folder-mini"><span>Fatura <b>${F.money(inv.remainingCents)}</b></span><span>Usado <b>${F.money(used)}</b></span></span>${icon('chevronRight','folder-chevron')}</button>${ui.cardEditMode?`<div class="folder-editbar"><button class="soft-btn btn-sm" data-edit="card" data-id="${e(c.id)}">${icon('edit')} Personalizar</button><button class="danger-btn btn-sm" data-archive="card" data-id="${e(c.id)}">${icon('trash')} Lixeira</button></div>`:''}</div>`;
+  }
+
+  function cardFolderPage(st,card,key){
+    const inv=F.invoiceFor(st,card.id,key),used=F.cardCommitted(st,card.id),limit=num(card.limitCents),available=limit?Math.max(0,limit-used):0;
+    const purchases=(st.cardPurchases||[]).filter(p=>p.cardId===card.id).slice().sort((a,b)=>(b.purchaseDate||'').localeCompare(a.purchaseDate||''));
+    const payments=(st.cardPayments||[]).filter(p=>p.cardId===card.id&&p.invoiceMonth===key).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const color=safeColor(card.color,'#176b52');
+    return shell(`<div class="folder-breadcrumb"><button class="secondary-btn btn-sm" data-card-back>${icon('arrowLeft')} Cartões</button><span>${icon('folderOpen')} ${e(card.name||'Meu cartão')}</span></div>
+      <section class="card-folder-hero" style="--folder-color:${color}"><div class="card-folder-title"><div class="folder-icon big">${icon(safeIcon(card.icon,'card'))}</div><div><small>${e(card.bank||'Cartão de crédito')}</small><h2>${e(card.name||'Meu cartão')}</h2><span>${card.last4?`•••• ${e(card.last4)}`:'Dados do cartão'}</span></div></div><div class="section-actions"><button class="primary-btn btn-sm" data-action="card-purchase-for" data-id="${e(card.id)}">${icon('plus')} Adicionar compra</button><button class="secondary-btn btn-sm" data-action="card-payment-for" data-id="${e(card.id)}">${icon('check')} Pagar fatura</button><button class="secondary-btn btn-sm ${ui.cardEditMode?'active-edit':''}" data-action="toggle-card-edit">${icon('edit')} ${ui.cardEditMode?'Concluir edição':'Editar'}</button></div></section>
+      <div class="card-status-bar"><div><span>Limite</span><strong>${limit?F.money(limit):'Não informado'}</strong></div><div><span>Utilizado</span><strong>${F.money(used)}</strong></div><div><span>Fatura de ${e(F.monthLabel(key).split(' ')[0])}</span><strong>${F.money(inv.amountCents)}</strong></div><div><span>Restante da fatura</span><strong>${F.money(inv.remainingCents)}</strong></div><div><span>Disponível</span><strong>${limit?F.money(available):'—'}</strong></div></div>
+      ${limit?`<div class="card-limit-progress"><span style="width:${Math.min(100,pct(used,limit))}%"></span></div>`:''}
+      <div class="grid-2 card-organized-grid"><section class="panel"><div class="panel-head"><div><h3>Fatura de ${e(F.monthLabel(key))}</h3><small>${inv.items.length} parcela(s) · ${F.money(inv.paidCents)} pago</small></div>${inv.remainingCents>0?`<button class="soft-btn btn-sm" data-action="card-payment-for" data-id="${e(card.id)}">Marcar pagamento</button>`:'<span class="tag good">Paga</span>'}</div>${inv.items.length?`<div class="purchase-list structured">${inv.items.map(x=>`<div class="purchase-row"><span class="purchase-date">${x.index}/${x.totalInstallments}</span><div><strong>${e(x.description||'Compra')}</strong><small>${e(F.categoryName(st,x.categoryId))}</small></div><b>${F.money(x.amountCents)}</b></div>`).join('')}</div>`:empty('Fatura sem compras','Não há parcelas calculadas para este mês.','card')}${payments.length?`<div class="payment-history"><strong>Pagamentos da fatura</strong>${payments.map(p=>`<span>${F.dateLabel(p.date)} · ${F.money(p.amountCents)}</span>`).join('')}</div>`:''}</section>
+      <section class="panel"><div class="panel-head"><div><h3>Todas as compras</h3><small>${purchases.length} compra(s) cadastrada(s)</small></div></div>${purchases.length?`<div class="purchase-list">${purchases.map(p=>`<div class="purchase-row"><span class="purchase-date">${p.purchaseDate?F.dateLabel(p.purchaseDate).slice(0,5):'—'}</span><div><strong>${e(p.description||'Compra no cartão')}</strong><small>${num(p.installments)||1}x · ${e(F.categoryName(st,p.categoryId))}</small></div><b>${F.money(p.totalCents)}</b>${ui.cardEditMode?`<div class="purchase-edit-actions"><button class="action-btn" data-edit="card_purchase" data-id="${e(p.id)}" title="Editar">${icon('edit')}</button><button class="action-btn danger" data-archive="card_purchase" data-id="${e(p.id)}" title="Mover para lixeira">${icon('trash')}</button></div>`:''}</div>`).join('')}</div>`:empty('Nenhuma compra','Use “Adicionar compra” dentro desta pasta.','plus')}</section></div>
+      ${ui.cardEditMode?`<section class="panel card-edit-zone"><div><h3>Editar pasta do cartão</h3><p>Personalize os dados, cor e ícone ou mova o cartão inteiro para a lixeira.</p></div><div class="section-actions"><button class="secondary-btn" data-edit="card" data-id="${e(card.id)}">${icon('palette')} Personalizar cartão</button><button class="danger-btn" data-archive="card" data-id="${e(card.id)}">${icon('trash')} Mover cartão para lixeira</button></div></section>`:''}`, card.name||'Cartão', 'Compras, fatura e limite dentro da própria pasta');
+  }
+
+  function managePage(){
+    if(ui.manageFolder){
+      if(ui.manageFolder==='trash'){ui.route='trash';ui.manageFolder=null;return ''}
+      const def=manageFolderDef(ui.manageFolder);
+      return shell(`<div class="folder-breadcrumb"><button class="secondary-btn btn-sm" data-manage-back>${icon('arrowLeft')} Gerenciar</button><span>${icon(def.icon)} ${e(def.label)}</span></div><div class="manage-folder-head" style="--folder-color:${def.color}"><div><span class="folder-icon">${icon(def.icon)}</span><div><h2>${e(def.label)}</h2><p>${e(def.desc)}</p></div></div><button class="secondary-btn btn-sm" data-folder-customize="${e(def.key)}">${icon('palette')} Personalizar pasta</button></div>${manageFolderContent(def.key)}`, def.label, def.desc);
+    }
+    return shell(`<div class="section-title v4-title"><div><h2>Gerenciar</h2><p>Tudo organizado em pastas. Abra somente o que precisa alterar.</p></div><button class="secondary-btn btn-sm" data-action="toggle-manage-organize">${icon('palette')} ${ui.manageEditMode?'Concluir':'Editar pastas'}</button></div>${manageShortcuts()}<div class="folder-grid manage-folder-grid">${sortedManageFolders().map(folder=>`<div class="folder-tile manage-folder" style="--folder-color:${folder.color}"><button class="folder-open" ${folder.key==='trash'?'data-route="trash"':`data-manage-folder="${folder.key}"`}><span class="folder-tab"></span><span class="folder-icon">${icon(folder.icon)}</span><span class="folder-copy"><small>Gerenciar</small><strong>${e(folder.label)}</strong><span>${e(folder.desc)}</span></span>${icon('chevronRight','folder-chevron')}</button>${ui.manageEditMode?`<div class="folder-editbar"><button class="soft-btn btn-sm" data-folder-customize="${folder.key}">${icon('palette')} Personalizar</button></div>`:''}</div>`).join('')}</div>`, 'Gerenciar', 'Pastas para cadastrar, editar, pagar e organizar');
+  }
+
+  function manageFolderContent(key){
+    const fn={transactions:manageTransactions,fixed_income:()=>manageCommitments('income'),fixed_expense:()=>manageCommitments('expense'),cards:manageCardsV4,debts:manageDebts,catalogs:manageCatalogs,budget:manageBudget}[key];
+    return fn?fn():'';
+  }
+  function manageCardsV4(){
+    const st=ui.state,cards=(st.cards||[]).slice().sort((a,b)=>num(a.sortOrder)-num(b.sortOrder));
+    return `<section class="panel"><div class="panel-head"><div><h3>Pastas de cartões</h3><small>Abra um cartão para gerenciar suas compras e fatura</small></div><button class="primary-btn btn-sm" data-action="card">${icon('plus')} Novo cartão</button></div>${cards.length?`<div class="folder-grid compact">${cards.map(c=>cardFolderTile(st,c,ui.month)).join('')}</div>`:empty('Sem cartões','Cadastre um cartão para criar a primeira pasta.','card')}</section>`;
+  }
+
+  function openFolderPref(key){
+    const def=manageFolderDef(key);
+    openModal('Personalizar pasta','Mude nome, cor, ícone e posição sem alterar os dados financeiros',`<input type="hidden" name="folderKey" value="${e(key)}"><div class="form-grid">${field('Nome da pasta','label',def.label)}${field('Cor','color',def.color,'color')}${selectField('Ícone','icon','<option value="folder">Pasta</option><option value="receipt">Recibo</option><option value="wallet">Carteira</option><option value="calendar">Calendário</option><option value="card">Cartão</option><option value="target">Alvo</option><option value="bank">Banco</option><option value="trash">Lixeira</option>',def.icon)}${field('Ordem','order',String(def.order??MANAGE_FOLDERS.findIndex(x=>x.key===key)),'number','min="0" max="99"')}${textarea('Descrição','desc',def.desc)}</div>`,'folder-pref');setModalSelects();
+  }
+
+  async function trashPage(){
+    const items=await S.getTrash().catch(()=>[]);
+    const labels={account:'Conta',category:'Categoria',transaction:'Movimentação',commitment:'Valor fixo',commitment_payment:'Pagamento de fixo',card:'Cartão',card_purchase:'Compra do cartão',card_payment:'Pagamento de fatura',debt:'Dívida',debt_payment:'Pagamento de dívida',budget:'Orçamento',transfer:'Transferência',goal:'Meta'};
+    return shell(`<div class="section-title"><div><h2>Lixeira</h2><p>Nada é apagado de primeira. Restaure ou exclua permanentemente.</p></div></div><div class="alert-strip warn">${icon('info')}<div><strong>Exclusão segura</strong><span>Excluir em qualquer tela move o item para cá. A exclusão permanente pede confirmação novamente.</span></div></div><section class="panel">${items.length?`<div class="trash-list">${items.map(x=>`<div class="trash-row"><span class="row-icon">${icon(x.entityType==='card'?'card':x.entityType==='debt'?'receipt':x.entityType==='transaction'?'receipt':'folder')}</span><div class="row-main"><strong>${e(x.title||labels[x.entityType]||'Registro')}</strong><span>${e(labels[x.entityType]||x.entityType)}${x.deletedAt?` · removido ${e(F.dateLabel(String(x.deletedAt).slice(0,10)))}`:''}</span></div><div class="section-actions"><button class="soft-btn btn-sm" data-trash-restore="${e(x.entityType)}" data-id="${e(x.id)}">${icon('restoreIcon')} Restaurar</button><button class="danger-btn btn-sm" data-trash-delete="${e(x.entityType)}" data-id="${e(x.id)}">${icon('trash')} Excluir para sempre</button></div></div>`).join('')}</div>`:empty('Lixeira vazia','Itens removidos aparecerão aqui antes de serem apagados definitivamente.','trash')}</section>`, 'Lixeira', 'Exclusão segura e reversível');
+  }
+
+  async function settingsPage(){
+    let info={path:S.isNative()?'Banco local':'Prévia',size:0,counts:{}}; try{info=await S.getDatabaseInfo()}catch{}
+    const backups=await S.getBackups().catch(()=>[]), sync=await S.getSyncPlatform().catch(()=>({platform:'preview',canSend:false,canReceive:false}));
+    const profile=ui.state.profile||{},days=Number(profile.notificationDays??3);
+    let syncBox=`<div class="alert-strip warn">${icon('info')}<div><strong>Disponível no aplicativo instalado</strong><span>Windows e Android usam a sincronização local.</span></div></div>`;
+    if(sync.canSend) syncBox=`<div class="alert-strip">${icon('refresh')}<div><strong>Sincronização em duas vias</strong><span>O celular envia suas alterações, o PC mescla os dois bancos e devolve o resultado combinado.</span></div></div><div class="info-box" style="margin-top:12px"><span>Conflitos</span><strong>Se o mesmo registro foi alterado nos dois, vence a edição mais recente.</strong></div><div style="height:14px"></div><button class="primary-btn" data-action="sync-send">${icon('refresh')} Preparar sincronização</button>`;
+    if(sync.canReceive) syncBox=`<div class="alert-strip">${icon('refresh')}<div><strong>Sincronizar com o PC</strong><span>Suas alterações do celular serão enviadas e as mudanças do PC voltarão combinadas.</span></div></div><form data-form="sync-receive" style="margin-top:14px"><div class="form-grid"><div class="form-field full"><label>IP do PC</label><input name="host" inputmode="decimal" autocomplete="off" placeholder="Ex.: 192.168.0.15"></div></div><div class="alert-strip warn" style="margin:14px 0">${icon('info')}<div><strong>Não substitui mais um banco pelo outro</strong><span>O app cria backups e mescla os registros por identificador e data de alteração.</span></div></div><button class="primary-btn" type="submit">${icon('refresh')} Sincronizar agora</button></form>`;
+    return shell(`<div class="grid-equal"><section class="panel"><div class="panel-head"><h3>Esta instalação</h3><small>Preferências locais</small></div><form data-form="settings-profile"><div class="form-grid"><div class="form-field"><label>Nome</label><input name="name" value="${e(profile.name||'')}" placeholder="Usuário"></div><div class="form-field"><label>Uso</label><select name="usageMode"><option value="household" ${selected(profile.usageMode,'household')}>Gestão da casa</option><option value="personal" ${selected(profile.usageMode,'personal')}>Finanças pessoais</option></select></div><div class="form-field"><label>Tema</label><select name="theme"><option value="system" ${selected(profile.theme,'system')}>Automático</option><option value="light" ${selected(profile.theme,'light')}>Claro</option><option value="dark" ${selected(profile.theme,'dark')}>Escuro</option></select></div><div class="form-field"><label>Avisar quantos dias antes</label><input type="number" name="notificationDays" min="0" max="30" value="${e(days)}"></div><label class="setting-toggle full"><input type="checkbox" name="notificationsEnabled" ${checked(profile.notificationsEnabled!==false)}><span>${icon('bell')}<b>Notificações financeiras</b><small>Alertas de contas atrasadas e vencimentos próximos.</small></span></label></div><div class="section-actions settings-actions"><button class="primary-btn btn-sm" type="submit">Salvar preferências</button><button class="secondary-btn btn-sm" type="button" data-action="notification-test">${icon('bell')} Testar notificação</button></div></form></section><section class="panel"><div class="panel-head"><h3>Banco local</h3><small>Dados deste aparelho</small></div><div class="settings-grid"><div class="info-box"><span>Local</span><strong>${e(info.path||'')}</strong></div><div class="info-box"><span>Tamanho</span><strong>${formatBytes(info.size||0)}</strong></div></div><div class="alert-strip" style="margin:14px 0 0">${icon('lock')}<div><strong>Banco individual</strong><span>Os dados continuam locais. A sincronização acontece somente quando você manda.</span></div></div></section></div><div class="grid-equal"><section class="panel"><div class="panel-head"><div><h3>Backup</h3><small>Proteção antes de mudanças importantes</small></div><button class="primary-btn btn-sm" data-action="backup">${icon('download')} Fazer backup</button></div>${S.isNative()?(backups.length?`<div class="list">${backups.slice(0,8).map(b=>`<div class="list-row"><div class="row-icon">${icon('download')}</div><div class="row-main"><strong>${e(b.name)}</strong><span>${formatBytes(b.size)}</span></div><button class="secondary-btn btn-sm" data-restore="${e(b.name)}">Restaurar</button></div>`).join('')}</div>`:empty('Nenhum backup ainda','Crie o primeiro backup local do banco SQLite.','download')):`<div class="alert-strip warn">${icon('info')}<div><strong>Modo de prévia</strong><span>O app instalado usa backup real do SQLite.</span></div></div>`}</section><section class="panel"><div class="panel-head"><h3>PC ↔ celular</h3><small>Mesclagem bidirecional por Wi-Fi</small></div>${syncBox}</section></div>`, 'Configurações', 'Preferências, notificações, backup e sincronização');
+  }
+
+  function openSyncSendModal(session){
+    modalRoot.innerHTML=`<div class="modal-backdrop"><div class="modal" role="dialog" aria-modal="true"><div class="modal-head"><div><h2>Sincronizar PC ↔ celular</h2><p>Deixe esta janela aberta enquanto o celular sincroniza.</p></div><button class="modal-close" type="button" data-close-modal>${icon('close')}</button></div><div class="modal-body"><div class="alert-strip">${icon('refresh')}<div><strong>Sincronização em duas vias</strong><span>O celular envia suas alterações, o PC mescla e devolve o banco combinado.</span></div></div><div class="sync-pair-grid"><div class="info-box full"><span>IP do PC</span><strong class="sync-code">${e(session.ip)}</strong></div></div><div class="alert-strip warn">${icon('info')}<div><strong>No celular</strong><span>Abra Configurações → PC ↔ celular, digite somente o IP e toque em Sincronizar agora.</span></div></div></div><div class="modal-foot"><button class="secondary-btn" type="button" data-action="sync-stop">Encerrar</button><button class="primary-btn" type="button" data-action="sync-refresh">Atualizar dados do PC</button></div></div></div>`;
+  }
+
+  async function notificationPermission(){
+    const n=window.__TAURI__?.notification;if(!n)return false;
+    try{let ok=await n.isPermissionGranted();if(!ok)ok=(await n.requestPermission())==='granted';return ok}catch{return false}
+  }
+  async function sendNativeNotification(title,body){
+    const n=window.__TAURI__?.notification;if(!n)return false;
+    if(!await notificationPermission())return false;
+    try{n.sendNotification({title,body});return true}catch{return false}
+  }
+  async function maybeSendDailyNotification(force=false){
+    if(!S.isNative()||!ui.state?.profile||ui.state.profile.notificationsEnabled===false)return;
+    const today=F.todayKey(),key='sos-financa-notify-'+today;if(!force&&localStorage.getItem(key))return;
+    const due=F.dueBuckets(ui.state,F.monthKey(new Date())),days=Math.max(0,Math.min(30,Number(ui.state.profile.notificationDays??3)));
+    const now=F.parseDate(today),limit=new Date(now.getTime()+days*86400000);
+    const soon=due.next7.filter(x=>F.parseDate(x.dueDate)<=limit),over=due.overdue;
+    if(!over.length&&!soon.length){if(force)await sendNativeNotification('SOS Finança','Tudo certo: nenhum vencimento urgente encontrado.');return}
+    const amount=sum([...over,...soon],x=>Math.max(0,num(x.amountCents)-num(x.paidCents)));
+    const parts=[];if(over.length)parts.push(`${over.length} em atraso`);if(soon.length)parts.push(`${soon.length} vencendo em até ${days} dia(s)`);
+    if(await sendNativeNotification('SOS Finança — atenção',`${parts.join(' · ')}. Total: ${F.money(amount)}.`))localStorage.setItem(key,'1');
+  }
+
+  async function renderApp(){
+    if(!ui.state) await reload(false);
+    if(!ui.state.profile){setupPage();return;}
+    applyTheme();
+    if(ui.route==='settings'){root.innerHTML=await settingsPage();return;}
+    if(ui.route==='trash'){root.innerHTML=await trashPage();return;}
+    const pages={home:homePage,month:monthPage,accounts:accountsPage,cards:cardsPage,debts:debtsPage,budget:budgetPage,reports:reportsPage,manage:managePage,more:morePage};
+    root.innerHTML=(pages[ui.route]||homePage)();
+  }
+
   function options(list,value,label,blank='Selecione'){return `<option value="">${e(blank)}</option>${list.map(x=>`<option value="${e(value(x))}">${e(label(x))}</option>`).join('')}`}
   function accountOptions(){return options(ui.state.accounts||[],x=>x.id,x=>x.name,'Sem conta / não informar')}
   function categoryOptions(kind=''){const list=(ui.state.categories||[]).filter(c=>!kind||c.kind===kind);return options(list,x=>x.id,x=>cPath(x),'Sem categoria')}
@@ -335,7 +544,7 @@
       const income=(item.kind||'expense')==='income';
       openModal(item.id?`Editar ${income?'receita fixa':'conta fixa'}`:`Nova ${income?'receita fixa':'conta fixa'}`,'Cadastre uma vez e ela continua todos os meses até você pausar ou definir um fim',`<input type="hidden" name="id" value="${e(item.id||'')}"><div class="form-grid">${selectField('Tipo','kind','<option value="expense">Conta / despesa fixa</option><option value="income">Salário / receita fixa</option>',item.kind||'expense')}${field('Nome (opcional)','name',item.name||'','text',`placeholder="${income?'Ex.: Salário':'Ex.: Internet'}"`)}${moneyInput('Valor mensal','amount',item.amountCents,false,'Esse valor pode ser editado depois.')}${field('Dia de vencimento/recebimento (opcional)','dueDay',item.dueDay||'','number','min="1" max="31" placeholder="Ex.: 5"')}${selectField('Categoria (opcional)','categoryId',categoryOptions(item.kind||'expense'),item.categoryId)}${selectField('Conta padrão (opcional)','accountId',accountOptions(),item.accountId)}${field('Começa em (opcional)','startMonth',item.startMonth||'','month','',false,'Se não lembra quando começou, deixe vazio. O app considera a recorrência ativa.')}${field('Termina em (opcional)','endMonth',item.endMonth||'','month','',false,'Deixe vazio para continuar todos os meses.')}${selectField('Status','active','<option value="true">Ativo todos os meses</option><option value="false">Pausado</option>',String(item.active!==false))}${textarea('Observação (opcional)','notes',item.notes||'')}</div>`,'commitment',true);setModalSelects();modalRoot.querySelector('[name="kind"]')?.addEventListener('change',ev=>modalRoot.querySelector('[name="categoryId"]').innerHTML=categoryOptions(ev.target.value));return}
     if(type==='commitment_payment'){const c=item;const expected=F.commitmentExpectedAmount(ui.state,c,ui.month);const remaining=Math.max(0,expected-F.commitmentPaid(ui.state,c,ui.month));openModal(c.kind==='income'?'Registrar recebimento':'Registrar pagamento',c.name||'Valor fixo',`<input type="hidden" name="commitmentId" value="${e(c.id)}"><div class="form-grid">${field('Mês de referência (opcional)','monthKey',ui.month,'month')}${moneyInput('Valor','amount',remaining||c.amountCents)}${field('Data (opcional)','date',F.todayKey(),'date')}${selectField('Conta (opcional)','accountId',accountOptions(),c.accountId)}</div><div class="alert-strip" style="margin:10px 0 0">${icon('refresh')}<div><strong>Isso não encerra o valor fixo</strong><span>No próximo mês ele aparecerá novamente automaticamente.</span></div></div>`,'commitment_payment');setModalSelects();return}
-    if(type==='card'){openModal(item.id?'Editar cartão':'Novo cartão','Nome, limite, fechamento e vencimento podem ser completados depois',`<input type="hidden" name="id" value="${e(item.id||'')}"><div class="form-grid">${field('Nome (opcional)','name',item.name||'','text','placeholder="Ex.: Nubank"')}${field('Banco (opcional)','bank',item.bank||'','text','placeholder="Ex.: Nubank"')}${field('Bandeira (opcional)','brand',item.brand||'','text','placeholder="Visa, Mastercard..."')}${field('Últimos 4 dígitos (opcional)','last4',item.last4||'','text','maxlength="4" inputmode="numeric"')}${moneyInput('Limite (opcional)','limit',item.limitCents)}${field('Fecha dia (opcional)','closeDay',item.closeDay||'','number','min="1" max="31" placeholder="Ex.: 18"')}${field('Vence dia (opcional)','dueDay',item.dueDay||'','number','min="1" max="31" placeholder="Ex.: 25"')}${selectField('Conta usada para pagar (opcional)','accountId',accountOptions(),item.accountId)}</div>`,'card');setModalSelects();return}
+    if(type==='card'){openModal(item.id?'Editar pasta do cartão':'Novo cartão','Personalize a pasta e complete somente o que souber',`<input type="hidden" name="id" value="${e(item.id||'')}"><div class="form-grid">${field('Nome do cartão','name',item.name||'','text','placeholder="Ex.: Nubank"')}${field('Banco (opcional)','bank',item.bank||'','text','placeholder="Ex.: Nubank"')}${field('Bandeira (opcional)','brand',item.brand||'','text','placeholder="Visa, Mastercard..."')}${field('Últimos 4 dígitos (opcional)','last4',item.last4||'','text','maxlength="4" inputmode="numeric"')}${moneyInput('Limite (opcional)','limit',item.limitCents)}${field('Fecha dia (opcional)','closeDay',item.closeDay||'','number','min="1" max="31" placeholder="Ex.: 18"')}${field('Vence dia (opcional)','dueDay',item.dueDay||'','number','min="1" max="31" placeholder="Ex.: 25"')}${selectField('Conta usada para pagar (opcional)','accountId',accountOptions(),item.accountId)}${field('Cor da pasta','color',safeColor(item.color,'#176b52'),'color')}${selectField('Ícone da pasta','icon','<option value="card">Cartão</option><option value="wallet">Carteira</option><option value="bank">Banco</option><option value="receipt">Recibo</option><option value="folder">Pasta</option>',safeIcon(item.icon,'card'))}${field('Ordem (opcional)','sortOrder',String(item.sortOrder??0),'number','min="0" max="999"')}</div>`,'card');setModalSelects();return}
     if(type==='card_purchase'){openModal(item.id?'Editar compra':'Adicionar compra ao cartão','Só cartão e valor são necessários; data de hoje e 1 parcela são assumidos se deixar vazio',`<input type="hidden" name="id" value="${e(item.id||'')}"><div class="form-grid">${selectField('Cartão','cardId',cardOptions(),item.cardId)}${field('Descrição (opcional)','description',item.description||'','text','placeholder="Ex.: Geladeira, mercado"')}${moneyInput('Valor total','total',item.totalCents)}${field('Data da compra (opcional)','purchaseDate',item.purchaseDate||F.todayKey(),'date')}${field('Parcelas (opcional)','installments',item.installments||1,'number','min="1" max="120"')}${selectField('Categoria (opcional)','categoryId',categoryOptions('expense'),item.categoryId)}${textarea('Observação (opcional)','notes',item.notes||'')}</div>`,'card_purchase');setModalSelects();return}
     if(type==='card_payment'){openModal('Pagar fatura','O pagamento baixa a conta bancária; as compras continuam no histórico',`<div class="form-grid">${selectField('Cartão','cardId',cardOptions(),item.cardId)}${field('Fatura de (opcional)','invoiceMonth',item.invoiceMonth||ui.month,'month')}${moneyInput('Valor pago','amount')}${field('Data (opcional)','date',F.todayKey(),'date')}${selectField('Conta de saída (opcional)','accountId',accountOptions(),item.accountId)}</div><div class="form-hint">Confira o valor calculado na tela do cartão antes de registrar.</div>`,'card_payment');setModalSelects();return}
     if(type==='debt'){const hasPayments=item.id&&(ui.state.debtPayments||[]).some(p=>p.debtId===item.id),hasKnown=F.debtHasKnownBalance(item);openModal(item.id?'Editar dívida':'Nova dívida','Não lembra quando começou ou quanto falta? Sem problema. Cadastre o que sabe e complete depois.',`<input type="hidden" name="id" value="${e(item.id||'')}"><div class="form-grid">${selectField('Tipo','debtType','<option value="loan">Empréstimo</option><option value="car">Financiamento de carro</option><option value="motorcycle">Financiamento de moto</option><option value="card">Dívida de cartão</option><option value="personal">Dívida pessoal</option><option value="other">Outra dívida</option>',item.debtType||'loan')}${field('Nome (opcional)','name',item.name||'','text','placeholder="Ex.: Financiamento do carro"')}${field('Credor / instituição (opcional)','creditor',item.creditor||'','text','placeholder="Banco ou pessoa"')}${field('Data de início (opcional)','startDate',item.startDate||'','date','',false,'Deixe vazio se não lembrar.')}${moneyInput('Valor original (opcional)','original',item.originalCents)}${moneyInput('Total contratado (opcional)','totalContract',item.totalContractCents)}${field('Saldo devedor atual (opcional)','balance',hasKnown?F.debtBalance(ui.state,item)/100:'','text',`inputmode="decimal" placeholder="0,00" ${hasPayments&&hasKnown?'readonly':''}`,false,hasPayments&&hasKnown?'Bloqueado porque a dívida já tinha saldo conhecido e há pagamentos registrados.':hasPayments?'Informe o saldo atual se descobriu agora; o app preserva os pagamentos anteriores.':'Se não souber agora, deixe vazio e informe depois.')}${moneyInput('Valor da parcela (opcional)','installment',item.installmentCents)}${field('Parcelas totais (opcional)','installmentsTotal',item.installmentsTotal||'','number','min="0" max="600"')}${field('Parcelas já pagas antes do app (opcional)','installmentsPaid',item.installmentsPaid||'','number','min="0" max="600"')}${field('Vence dia (opcional)','dueDay',item.dueDay||'','number','min="1" max="31"')}${field('Juros % (opcional)','interestRate',item.interestRate||'','text','inputmode="decimal"')}${selectField('Prioridade (opcional)','priority','<option value="3">Normal</option><option value="2">Média</option><option value="1">Alta</option>',item.priority||3)}${textarea('Observação (opcional)','notes',item.notes||'')}</div>`,'debt',true);setModalSelects();return}
@@ -351,14 +560,15 @@
       const positive=(name,label)=>{const value=cents(name);if(value<=0)throw new Error(`${label} precisa ser maior que zero.`);return value};
       const optionalInt=(name,min,max)=>{if(!g(name))return 0;const value=num(g(name));if(!Number.isInteger(value)||value<min||value>max)throw new Error(`O valor de ${name} precisa estar entre ${min} e ${max}.`);return value};
       const assertCategoryKind=(categoryId,kind)=>{if(!categoryId)return;const category=F.byId(ui.state,'categories',categoryId);if(!category||category.kind!==kind)throw new Error('A categoria escolhida não corresponde ao tipo do lançamento.')};
-      if(type==='setup'||type==='settings-profile'){await S.saveEntity('profile',{name:g('name')||'Usuário',usageMode:g('usageMode')||'personal',theme:g('theme')||ui.state?.profile?.theme||'system'});await reload();closeModal(false);toast('Preferências salvas');return}
-      if(type==='sync-receive'){const host=g('host');if(!host)throw new Error('Informe o IP mostrado no PC.');if(!confirm('Receber os dados do PC agora? O SOS Finança fará backup deste celular e depois substituirá o banco local pela cópia do PC.'))return;toast('Localizando o PC e baixando os dados...');const result=await S.receiveSyncFromPc(host);await reload();toast(result?.message||'Sincronização concluída');return}
+      if(type==='setup'||type==='settings-profile'){const existing=ui.state?.profile||{};await S.saveEntity('profile',{...existing,name:g('name')||existing.name||'Usuário',usageMode:g('usageMode')||existing.usageMode||'personal',theme:g('theme')||existing.theme||'system',folderPrefs:existing.folderPrefs||{},notificationsEnabled:type==='settings-profile'?Boolean(form.elements.notificationsEnabled?.checked):(existing.notificationsEnabled!==false),notificationDays:type==='settings-profile'?optionalInt('notificationDays',0,30):(existing.notificationDays??3)});await reload();closeModal(false);toast('Preferências salvas');if(type==='settings-profile'&&form.elements.notificationsEnabled?.checked)maybeSendDailyNotification(true).catch(()=>{});return}
+      if(type==='sync-receive'){const host=g('host');if(!host)throw new Error('Informe o IP mostrado no PC.');if(!confirm('Sincronizar PC e celular agora? O SOS Finança fará backup, combinará as alterações dos dois aparelhos e manterá a versão mais recente quando o mesmo registro tiver sido editado nos dois.'))return;toast('Sincronizando e mesclando os dois aparelhos...');const result=await S.syncWithPc(host);await reload();toast(result?.message||'Sincronização bidirecional concluída');return}
+      if(type==='folder-pref'){const key=g('folderKey'),base=manageFolderDef(key),prefs={...(ui.state.profile?.folderPrefs||{})};prefs[key]={label:g('label')||base.label,desc:g('desc')||base.desc,color:safeColor(g('color'),base.color),icon:safeIcon(g('icon'),base.icon),order:optionalInt('order',0,99)};await S.saveEntity('profile',{...ui.state.profile,folderPrefs:prefs});closeModal(false);await reload();toast('Pasta personalizada');return}
       if(type==='quick'||type==='transaction'){const kind=g('kind')||'expense';assertCategoryKind(g('categoryId'),kind);await S.saveEntity('transaction',{id:g('id')||undefined,kind,amountCents:positive('amount','O valor'),description:g('description')||(kind==='income'?'Receita':'Despesa'),date:g('date')||F.todayKey(),categoryId:g('categoryId')||null,accountId:g('accountId')||null,paymentMethod:g('paymentMethod'),notes:g('notes')});}
       else if(type==='account')await S.saveEntity('account',{id:g('id')||undefined,name:g('name')||g('institution')||'Minha conta',institution:g('institution'),accountType:g('accountType')||'Conta corrente',openingBalanceCents:cents('openingBalance')});
       else if(type==='transfer'){if(!g('fromAccountId')||!g('toAccountId'))throw new Error('Escolha as duas contas.');if(g('fromAccountId')===g('toAccountId'))throw new Error('Escolha contas diferentes.');await S.saveEntity('transfer',{fromAccountId:g('fromAccountId'),toAccountId:g('toAccountId'),amountCents:positive('amount','O valor'),date:g('date')||F.todayKey(),notes:g('notes')});}
       else if(type==='commitment'){const kind=g('kind')||'expense';assertCategoryKind(g('categoryId'),kind);const start=g('startMonth'),end=g('endMonth');if(end&&start&&end<start)throw new Error('O mês final não pode ser anterior ao mês inicial.');await S.saveEntity('commitment',{id:g('id')||undefined,name:g('name')||(kind==='income'?'Salário / receita fixa':'Conta fixa'),kind,amountCents:positive('amount','O valor mensal'),dueDay:optionalInt('dueDay',1,31),categoryId:g('categoryId')||null,accountId:g('accountId')||null,startMonth:start,endMonth:end||null,active:g('active')!=='false',notes:g('notes')});}
       else if(type==='commitment_payment'){const c=F.byId(ui.state,'commitments',g('commitmentId'));if(!c)throw new Error('Valor fixo não encontrado.');const month=g('monthKey')||ui.month,amount=positive('amount','O valor'),expected=F.commitmentExpectedAmount(ui.state,c,month),remaining=Math.max(0,expected-F.commitmentPaid(ui.state,c,month));if(remaining<=0)throw new Error('Este mês já está totalmente registrado.');if(amount>remaining)throw new Error(`O valor excede o restante previsto de ${F.money(remaining)}.`);await S.saveEntity('commitment_payment',{commitmentId:c.id,monthKey:month,amountCents:amount,expectedAmountCents:expected,date:g('date')||F.todayKey(),accountId:g('accountId')||null});}
-      else if(type==='card'){if(g('last4')&&!/^\d{4}$/.test(g('last4')))throw new Error('Se informar os últimos dígitos, use exatamente 4 números.');await S.saveEntity('card',{id:g('id')||undefined,name:g('name')||g('bank')||'Meu cartão',bank:g('bank'),brand:g('brand'),last4:g('last4'),limitCents:cents('limit'),closeDay:optionalInt('closeDay',1,31),dueDay:optionalInt('dueDay',1,31),accountId:g('accountId')||null});}
+      else if(type==='card'){if(g('last4')&&!/^\d{4}$/.test(g('last4')))throw new Error('Se informar os últimos dígitos, use exatamente 4 números.');await S.saveEntity('card',{id:g('id')||undefined,name:g('name')||g('bank')||'Meu cartão',bank:g('bank'),brand:g('brand'),last4:g('last4'),limitCents:cents('limit'),closeDay:optionalInt('closeDay',1,31),dueDay:optionalInt('dueDay',1,31),accountId:g('accountId')||null,color:safeColor(g('color'),'#176b52'),icon:safeIcon(g('icon'),'card'),sortOrder:optionalInt('sortOrder',0,999)});}
       else if(type==='card_purchase'){if(!g('cardId'))throw new Error('Escolha o cartão.');assertCategoryKind(g('categoryId'),'expense');const installments=g('installments')?optionalInt('installments',1,120):1;await S.saveEntity('card_purchase',{id:g('id')||undefined,cardId:g('cardId'),description:g('description')||'Compra no cartão',totalCents:positive('total','O valor total'),purchaseDate:g('purchaseDate')||F.todayKey(),installments:installments||1,categoryId:g('categoryId')||null,notes:g('notes')});}
       else if(type==='card_payment'){if(!g('cardId'))throw new Error('Escolha o cartão.');const invoiceMonth=g('invoiceMonth')||ui.month,invoice=F.invoiceFor(ui.state,g('cardId'),invoiceMonth),amount=positive('amount','O valor pago');if(invoice.amountCents<=0)throw new Error('Não existe fatura calculada para este cartão nesse mês.');if(invoice.remainingCents<=0)throw new Error('Esta fatura já está totalmente paga.');if(amount>invoice.remainingCents)throw new Error(`O pagamento excede o restante da fatura: ${F.money(invoice.remainingCents)}.`);await S.saveEntity('card_payment',{cardId:g('cardId'),invoiceMonth,amountCents:amount,date:g('date')||F.todayKey(),accountId:g('accountId')||null});}
       else if(type==='debt'){const original=cents('original'),contract=cents('totalContract'),existing=F.byId(ui.state,'debts',g('id')),hasPayments=existing&&(ui.state.debtPayments||[]).some(p=>p.debtId===existing.id),existingKnown=existing&&F.debtHasKnownBalance(existing),typedBalance=cents('balance'),paidPrincipal=existing?(ui.state.debtPayments||[]).filter(p=>p.debtId===existing.id).reduce((a,p)=>a+num(p.principalCents||p.amountCents),0):0,balance=hasPayments&&existingKnown?num(existing.balanceCents||existing.totalContractCents||existing.originalCents):(hasPayments&&typedBalance>0?typedBalance+paidPrincipal:typedBalance),installmentsTotal=g('installmentsTotal')?optionalInt('installmentsTotal',0,600):0,installmentsPaid=g('installmentsPaid')?optionalInt('installmentsPaid',0,600):0;if(installmentsTotal>0&&installmentsPaid>installmentsTotal)throw new Error('Parcelas já pagas não pode ser maior que o total.');const interestRate=Number(g('interestRate').replace(',','.'))||0;if(interestRate<0||interestRate>1000)throw new Error('A taxa de juros informada parece inválida.');const debtType=g('debtType')||'other';await S.saveEntity('debt',{id:g('id')||undefined,debtType,name:g('name')||g('creditor')||debtTypeLabel(debtType),creditor:g('creditor'),originalCents:original,totalContractCents:contract,balanceCents:balance,installmentCents:cents('installment'),installmentsTotal,installmentsPaid,dueDay:optionalInt('dueDay',1,31),interestRate,startDate:g('startDate'),status:'active',priority:Number(g('priority'))||3,notes:g('notes')});}
@@ -373,15 +583,22 @@
   function getEntity(type,id){const map={account:'accounts',category:'categories',transaction:'transactions',commitment:'commitments',card:'cards',card_purchase:'cardPurchases',debt:'debts',budget:'budgets',goal:'goals'};return (ui.state[map[type]]||[]).find(x=>x.id===id)}
 
   root.addEventListener('click',async ev=>{
-    const route=ev.target.closest('[data-route]');if(route){ui.route=route.dataset.route;ui.cardManageId=null;await renderApp();pushHistory(false);return}
+    const route=ev.target.closest('[data-route]');if(route){ui.route=route.dataset.route;ui.cardManageId=null;ui.cardEditMode=false;ui.manageFolder=null;ui.manageEditMode=false;await renderApp();pushHistory(false);return}
     const shift=ev.target.closest('[data-month-shift]');if(shift){ui.month=F.addMonths(ui.month,Number(shift.dataset.monthShift));await renderApp();return}
-    const mt=ev.target.closest('[data-manage-tab]');if(mt){ui.manageTab=mt.dataset.manageTab;await renderApp();return}
-    const cardOpen=ev.target.closest('[data-card-open]');if(cardOpen){ui.cardManageId=cardOpen.dataset.cardOpen;await renderApp();pushHistory(false);return}
+    const mt=ev.target.closest('[data-manage-tab]');if(mt){ui.manageTab=mt.dataset.manageTab;ui.manageFolder=mt.dataset.manageTab;await renderApp();return}
+    const cardOpen=ev.target.closest('[data-card-open]');if(cardOpen){ui.cardManageId=cardOpen.dataset.cardOpen;ui.cardEditMode=false;await renderApp();pushHistory(false);return}
     const cardRoute=ev.target.closest('[data-card-open-route]');if(cardRoute){ui.cardManageId=cardRoute.dataset.cardOpenRoute;ui.route='cards';await renderApp();pushHistory(false);return}
+    const manageFolder=ev.target.closest('[data-manage-folder]');if(manageFolder){ui.manageFolder=manageFolder.dataset.manageFolder;await renderApp();pushHistory(false);return}
+    if(ev.target.closest('[data-manage-back]')){ui.manageFolder=null;await renderApp();pushHistory(false);return}
+    if(ev.target.closest('[data-card-back]')){ui.cardManageId=null;ui.cardEditMode=false;await renderApp();pushHistory(false);return}
+    const customize=ev.target.closest('[data-folder-customize]');if(customize){openFolderPref(customize.dataset.folderCustomize);return}
+    const alertOpen=ev.target.closest('[data-alert-open-type]');if(alertOpen){const type=alertOpen.dataset.alertOpenType,id=alertOpen.dataset.alertOpenId,month=alertOpen.dataset.alertMonth;if(month)ui.month=month;if(type==='card'){ui.route='cards';ui.cardManageId=id;ui.cardEditMode=false}else if(type==='debt'){ui.route='debts'}else if(type==='commitment'){const c=F.byId(ui.state,'commitments',id);ui.route='manage';ui.manageFolder=c?.kind==='income'?'fixed_income':'fixed_expense'}await renderApp();pushHistory(false);return}
+    const trashRestore=ev.target.closest('[data-trash-restore]');if(trashRestore){if(confirm('Restaurar este item da lixeira?')){try{await S.restoreArchived(trashRestore.dataset.trashRestore,trashRestore.dataset.id);await reload();toast('Item restaurado')}catch(err){toast(err.message,'danger')}}return}
+    const trashDelete=ev.target.closest('[data-trash-delete]');if(trashDelete){if(confirm('Excluir PERMANENTEMENTE este item? Esta ação não pode ser desfeita.')){try{await S.deleteForever(trashDelete.dataset.trashDelete,trashDelete.dataset.id);await reload();toast('Item excluído permanentemente')}catch(err){toast(err.message,'danger')}}return}
     if(ev.target.closest('[data-theme-toggle]')){const next=document.documentElement.dataset.theme==='dark'?'light':'dark';await S.saveEntity('profile',{...ui.state.profile,theme:next});await reload();return}
-    const action=ev.target.closest('[data-action]');if(action){const a=action.dataset.action,id=action.dataset.id;if(a==='quick')quickForm();else if(a==='transaction')openEntityForm('transaction');else if(a==='transfer')openEntityForm('transfer');else if(a==='commitment')openEntityForm('commitment');else if(a==='fixed-income')openEntityForm('commitment',{kind:'income'});else if(a==='fixed-expense')openEntityForm('commitment',{kind:'expense'});else if(a==='pay-commitment')openEntityForm('commitment_payment',getEntity('commitment',id));else if(a==='card')openEntityForm('card');else if(a==='card-purchase')openEntityForm('card_purchase');else if(a==='card-purchase-for')openEntityForm('card_purchase',{cardId:id});else if(a==='card-payment')openEntityForm('card_payment');else if(a==='card-payment-for')openEntityForm('card_payment',{cardId:id,invoiceMonth:ui.month});else if(a==='debt')openEntityForm('debt');else if(a==='debt-payment')openEntityForm('debt_payment');else if(a==='account')openEntityForm('account');else if(a==='category')openEntityForm('category');else if(a==='budget')openEntityForm('budget');else if(a==='goal')openEntityForm('goal');else if(a==='backup'){try{const p=await S.makeBackup();toast(`Backup criado: ${p}`);await renderApp()}catch(err){toast(err.message,'danger')}}else if(a==='sync-send'){try{const session=await S.startSyncServer();openSyncSendModal(session)}catch(err){toast(err.message,'danger')}}else if(a==='sync-stop'){try{await S.stopSyncServer()}catch{}closeModal(true);toast('Sincronização cancelada')}return}
+    const action=ev.target.closest('[data-action]');if(action){const a=action.dataset.action,id=action.dataset.id;if(a==='toggle-card-organize'){ui.cardEditMode=!ui.cardEditMode;await renderApp()}else if(a==='toggle-card-edit'){ui.cardEditMode=!ui.cardEditMode;await renderApp()}else if(a==='toggle-manage-organize'){ui.manageEditMode=!ui.manageEditMode;await renderApp()}else if(a==='notification-test'){const ok=await sendNativeNotification('SOS Finança','Notificações ativadas com sucesso.');toast(ok?'Notificação enviada':'Permissão de notificação não disponível',ok?'good':'danger')}else if(a==='sync-refresh'){closeModal(false);await reload();toast('Dados do PC atualizados')}else if(a==='quick')quickForm();else if(a==='transaction')openEntityForm('transaction');else if(a==='transfer')openEntityForm('transfer');else if(a==='commitment')openEntityForm('commitment');else if(a==='fixed-income')openEntityForm('commitment',{kind:'income'});else if(a==='fixed-expense')openEntityForm('commitment',{kind:'expense'});else if(a==='pay-commitment')openEntityForm('commitment_payment',getEntity('commitment',id));else if(a==='card')openEntityForm('card');else if(a==='card-purchase')openEntityForm('card_purchase');else if(a==='card-purchase-for')openEntityForm('card_purchase',{cardId:id});else if(a==='card-payment')openEntityForm('card_payment');else if(a==='card-payment-for')openEntityForm('card_payment',{cardId:id,invoiceMonth:ui.month});else if(a==='debt')openEntityForm('debt');else if(a==='debt-payment')openEntityForm('debt_payment');else if(a==='account')openEntityForm('account');else if(a==='category')openEntityForm('category');else if(a==='budget')openEntityForm('budget');else if(a==='goal')openEntityForm('goal');else if(a==='backup'){try{const p=await S.makeBackup();toast(`Backup criado: ${p}`);await renderApp()}catch(err){toast(err.message,'danger')}}else if(a==='sync-send'){try{const session=await S.startSyncServer();openSyncSendModal(session)}catch(err){toast(err.message,'danger')}}else if(a==='sync-stop'){try{await S.stopSyncServer()}catch{}closeModal(true);toast('Sincronização cancelada')}return}
     const edit=ev.target.closest('[data-edit]');if(edit){openEntityForm(edit.dataset.edit,getEntity(edit.dataset.edit,edit.dataset.id));return}
-    const archive=ev.target.closest('[data-archive]');if(archive){if(confirm('Arquivar este registro? O histórico principal será preservado sempre que possível.')){try{await S.archiveEntity(archive.dataset.archive,archive.dataset.id);await reload();toast('Registro arquivado')}catch(err){toast(err.message,'danger')}}return}
+    const archive=ev.target.closest('[data-archive]');if(archive){if(confirm('Tem certeza que deseja mover este item para a Lixeira? Você poderá restaurá-lo depois.')){try{await S.archiveEntity(archive.dataset.archive,archive.dataset.id);await reload();toast('Movido para a Lixeira')}catch(err){toast(err.message,'danger')}}return}
     const restore=ev.target.closest('[data-restore]');if(restore){if(confirm('Restaurar este backup? Será criado um backup de segurança do banco atual antes.')){try{await S.restoreBackup(restore.dataset.restore);await reload();toast('Backup restaurado')}catch(err){toast(err.message,'danger')}}}
   });
 
@@ -390,7 +607,7 @@
   modalRoot.addEventListener('submit',ev=>{if(ev.target.matches('form[data-form]')){ev.preventDefault();saveForm(ev.target)}});
   document.addEventListener('keydown',ev=>{if(ev.key==='Escape'&&modalRoot.innerHTML)closeModal(true)});
 
-  window.addEventListener('popstate',async ev=>{const state=ev.state;if(!state?.sosFinanca)return;ui.route=state.route||'home';ui.month=state.month||ui.month;ui.manageTab=state.manageTab||ui.manageTab;ui.cardManageId=state.cardManageId||null;modalRoot.innerHTML='';await renderApp();});
+  window.addEventListener('popstate',async ev=>{const state=ev.state;if(!state?.sosFinanca)return;ui.route=state.route||'home';ui.month=state.month||ui.month;ui.manageTab=state.manageTab||ui.manageTab;ui.manageFolder=state.manageFolder||null;ui.manageEditMode=Boolean(state.manageEditMode);ui.cardManageId=state.cardManageId||null;ui.cardEditMode=Boolean(state.cardEditMode);modalRoot.innerHTML='';await renderApp();});
 
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change',()=>{if(ui.state?.profile?.theme==='system')applyTheme()});
 

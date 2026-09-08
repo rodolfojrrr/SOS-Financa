@@ -75,6 +75,9 @@ jobs:
       - name: Testar estrutura SQLite
         run: python3 tests/schema_test.py
 
+      - name: Testar mesclagem bidirecional
+        run: python3 tests/sync_merge_test.py
+
       - name: Testar configuração de release
         run: python3 tests/release_test.py
 

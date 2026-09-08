@@ -2,6 +2,7 @@ use crate::db;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::fs;
+use std::io::Read;
 use std::net::{IpAddr, UdpSocket};
 use std::sync::{Arc, Mutex, OnceLock, atomic::{AtomicBool, Ordering}};
 use std::thread;
@@ -14,10 +15,10 @@ use tiny_http::{Header, Method, Response, Server, StatusCode};
 
 const FIXED_PORT: u16 = 45454;
 const MAX_SYNC_BYTES: usize = 128 * 1024 * 1024;
-const SESSION_SECONDS: u64 = 180;
-const PROTOCOL: &str = "SOSFINANCA-HTTP/2";
+const SESSION_SECONDS: u64 = 240;
+const PROTOCOL: &str = "SOSFINANCA-HTTP/3";
 const PING_PATH: &str = "/ping";
-const SNAPSHOT_PATH: &str = "/sos-financa.db";
+const SYNC_PATH: &str = "/sync";
 
 #[derive(Clone)]
 struct Session {
@@ -41,12 +42,10 @@ fn hex(bytes: &[u8]) -> String {
 }
 
 fn local_ip() -> String {
-    if let Ok(addr) = UdpSocket::bind("0.0.0.0:0")
-        .and_then(|socket| {
-            socket.connect("1.1.1.1:80")?;
-            socket.local_addr()
-        })
-    {
+    if let Ok(addr) = UdpSocket::bind("0.0.0.0:0").and_then(|socket| {
+        socket.connect("1.1.1.1:80")?;
+        socket.local_addr()
+    }) {
         if !addr.ip().is_loopback() {
             return addr.ip().to_string();
         }
@@ -71,14 +70,12 @@ fn local_ip() -> String {
             }
         }
     }
-
     "127.0.0.1".into()
 }
 
 #[cfg(target_os = "windows")]
 fn http_header(name: &str, value: &str) -> Header {
-    Header::from_bytes(name.as_bytes(), value.as_bytes())
-        .expect("cabecalho HTTP interno invalido")
+    Header::from_bytes(name.as_bytes(), value.as_bytes()).expect("cabecalho HTTP interno invalido")
 }
 
 #[cfg(target_os = "windows")]
@@ -92,10 +89,13 @@ fn text_response(status: u16, body: &str) -> Response<std::io::Cursor<Vec<u8>>> 
 pub fn platform() -> Value {
     json!({
         "platform": if cfg!(target_os = "android") { "android" } else if cfg!(target_os = "windows") { "windows" } else { "desktop" },
+        "canHost": cfg!(target_os = "windows"),
+        "canSync": cfg!(target_os = "android"),
         "canSend": cfg!(target_os = "windows"),
         "canReceive": cfg!(target_os = "android"),
         "port": FIXED_PORT,
-        "protocol": "http-local-v2"
+        "protocol": "http-merge-v3",
+        "bidirectional": true
     })
 }
 
@@ -103,86 +103,108 @@ pub fn start_server(app: &AppHandle) -> Result<Value, String> {
     #[cfg(not(target_os = "windows"))]
     {
         let _ = app;
-        return Err("O envio pela rede local está disponível no aplicativo Windows.".into());
+        return Err("O servidor de sincronização é iniciado pelo aplicativo Windows.".into());
     }
 
     #[cfg(target_os = "windows")]
     {
         stop_server();
-
-        let snapshot = db::create_sync_snapshot(app)?;
-        let plain = fs::read(&snapshot)
-            .map_err(|e| format!("Não foi possível preparar o banco para sincronização: {e}"))?;
-        let _ = fs::remove_file(&snapshot);
-
-        if plain.is_empty() {
-            return Err("O snapshot do banco ficou vazio. Nada foi enviado.".into());
-        }
-        if plain.len() > MAX_SYNC_BYTES {
-            return Err("O banco excede o limite de 128 MB para sincronização.".into());
-        }
-
-        let hash = hex(&Sha256::digest(&plain));
-        let payload = Arc::new(plain);
         let address = format!("0.0.0.0:{FIXED_PORT}");
-        let server = Arc::new(
-            Server::http(&address)
-                .map_err(|e| format!("Não foi possível abrir a porta {FIXED_PORT}: {e}"))?
-        );
-
+        let server = Arc::new(Server::http(&address).map_err(|e| format!("Não foi possível abrir a porta {FIXED_PORT}: {e}"))?);
         let ip = local_ip();
         if ip == "127.0.0.1" {
-            return Err("Não consegui identificar o IP local do PC. Confirme que o PC está no Wi-Fi.".into());
+            return Err("Não consegui identificar o IP local do PC. Confirme que o PC está conectado à rede Wi-Fi.".into());
         }
 
         let stop = Arc::new(AtomicBool::new(false));
-        let stop_thread = stop.clone();
-        let payload_thread = payload.clone();
-        let hash_thread = hash.clone();
-        let server_thread = server.clone();
         let session_id = Uuid::new_v4().simple().to_string();
-        let session_id_thread = session_id.clone();
-
         if let Ok(mut slot) = session_slot().lock() {
-            *slot = Some(Session { id: session_id, stop: stop.clone() });
+            *slot = Some(Session { id: session_id.clone(), stop: stop.clone() });
         }
+
+        let server_thread = server.clone();
+        let stop_thread = stop.clone();
+        let session_id_thread = session_id.clone();
+        let app_thread = app.clone();
 
         thread::spawn(move || {
             let started = Instant::now();
-
-            while !stop_thread.load(Ordering::Relaxed)
-                && started.elapsed() < Duration::from_secs(SESSION_SECONDS)
-            {
-                let request = match server_thread.recv_timeout(Duration::from_millis(250)) {
+            while !stop_thread.load(Ordering::Relaxed) && started.elapsed() < Duration::from_secs(SESSION_SECONDS) {
+                let mut request = match server_thread.recv_timeout(Duration::from_millis(250)) {
                     Ok(Some(request)) => request,
                     Ok(None) => continue,
                     Err(_) => break,
                 };
+                let url = request.url().to_string();
 
-                if request.method() != &Method::Get {
-                    let _ = request.respond(text_response(405, "Metodo nao permitido"));
+                if request.method() == &Method::Get && url == PING_PATH {
+                    let _ = request.respond(text_response(200, PROTOCOL));
                     continue;
                 }
 
-                let url = request.url().to_string();
-                match url.as_str() {
-                    PING_PATH => {
-                        let _ = request.respond(text_response(200, PROTOCOL));
-                    }
-                    SNAPSHOT_PATH => {
-                        let response = Response::from_data((*payload_thread).clone())
-                            .with_status_code(StatusCode(200))
-                            .with_header(http_header("Content-Type", "application/octet-stream"))
-                            .with_header(http_header("Cache-Control", "no-store"))
-                            .with_header(http_header("X-SOS-Financa-Protocol", PROTOCOL))
-                            .with_header(http_header("X-SOS-Financa-SHA256", &hash_thread));
-                        let _ = request.respond(response);
-                        break;
-                    }
-                    _ => {
-                        let _ = request.respond(text_response(404, "Nao encontrado"));
-                    }
+                if request.method() != &Method::Post || url != SYNC_PATH {
+                    let _ = request.respond(text_response(404, "Rota de sincronização não encontrada"));
+                    continue;
                 }
+
+                if request.body_length().unwrap_or(0) > MAX_SYNC_BYTES {
+                    let _ = request.respond(text_response(413, "Banco enviado excede 128 MB"));
+                    continue;
+                }
+
+                let expected_hash = request.headers().iter()
+                    .find(|h| h.field.equiv("X-SOS-Financa-SHA256"))
+                    .map(|h| h.value.as_str().to_lowercase())
+                    .unwrap_or_default();
+
+                let mut incoming = Vec::new();
+                let mut limited = request.as_reader().take((MAX_SYNC_BYTES + 1) as u64);
+                if let Err(err) = limited.read_to_end(&mut incoming) {
+                    let _ = request.respond(text_response(400, &format!("Falha ao receber banco do celular: {err}")));
+                    continue;
+                }
+                if incoming.is_empty() || incoming.len() > MAX_SYNC_BYTES {
+                    let _ = request.respond(text_response(413, "Banco recebido vazio ou acima do limite"));
+                    continue;
+                }
+
+                let actual_hash = hex(&Sha256::digest(&incoming));
+                if expected_hash.is_empty() || expected_hash != actual_hash {
+                    let _ = request.respond(text_response(400, "Integridade do banco enviado pelo celular não confere"));
+                    continue;
+                }
+
+                if let Err(err) = db::merge_sync_database(&app_thread, &incoming) {
+                    let _ = request.respond(text_response(500, &format!("Não foi possível combinar os bancos: {err}")));
+                    continue;
+                }
+
+                let snapshot = match db::create_sync_snapshot(&app_thread) {
+                    Ok(path) => path,
+                    Err(err) => {
+                        let _ = request.respond(text_response(500, &format!("Falha ao preparar banco combinado: {err}")));
+                        continue;
+                    }
+                };
+                let merged = match fs::read(&snapshot) {
+                    Ok(bytes) => bytes,
+                    Err(err) => {
+                        let _ = fs::remove_file(&snapshot);
+                        let _ = request.respond(text_response(500, &format!("Falha ao ler banco combinado: {err}")));
+                        continue;
+                    }
+                };
+                let _ = fs::remove_file(&snapshot);
+                let merged_hash = hex(&Sha256::digest(&merged));
+                let response = Response::from_data(merged)
+                    .with_status_code(StatusCode(200))
+                    .with_header(http_header("Content-Type", "application/octet-stream"))
+                    .with_header(http_header("Cache-Control", "no-store"))
+                    .with_header(http_header("X-SOS-Financa-Protocol", PROTOCOL))
+                    .with_header(http_header("X-SOS-Financa-SHA256", &merged_hash))
+                    .with_header(http_header("X-SOS-Financa-Merge", "two-way"));
+                let _ = request.respond(response);
+                break;
             }
 
             if let Ok(mut slot) = session_slot().lock() {
@@ -196,9 +218,9 @@ pub fn start_server(app: &AppHandle) -> Result<Value, String> {
             "ip": ip,
             "port": FIXED_PORT,
             "expiresInSeconds": SESSION_SECONDS,
-            "bytesReady": payload.len(),
-            "protocol": "HTTP local",
-            "warning": "O compartilhamento fica aberto por 3 minutos e encerra apos um download. Use somente em uma rede Wi-Fi privada."
+            "protocol": "HTTP local em duas vias",
+            "bidirectional": true,
+            "warning": "Durante a sincronização, alterações do PC e do celular são combinadas. O registro com atualização mais recente vence apenas quando o mesmo item foi editado nos dois aparelhos."
         }))
     }
 }
@@ -211,113 +233,66 @@ pub fn stop_server() {
     }
 }
 
-pub async fn receive_from_pc(app: &AppHandle, host: &str) -> Result<Value, String> {
+pub async fn sync_with_pc(app: &AppHandle, host: &str) -> Result<Value, String> {
     if !cfg!(target_os = "android") {
-        return Err("O recebimento foi preparado para o aplicativo Android.".into());
+        return Err("A sincronização com o PC é iniciada pelo aplicativo Android.".into());
     }
-
     let host = host.trim();
-    if host.is_empty() {
-        return Err("Informe o IP mostrado no PC.".into());
-    }
-
-    let ip: IpAddr = host
-        .parse()
-        .map_err(|_| "Digite um IP válido, como 192.168.0.15.".to_string())?;
-
+    if host.is_empty() { return Err("Informe o IP mostrado no PC.".into()); }
+    let ip: IpAddr = host.parse().map_err(|_| "Digite um IP válido, como 192.168.0.15.".to_string())?;
     let base = format!("http://{ip}:{FIXED_PORT}");
     let client = tauri_plugin_http::reqwest::Client::builder()
         .connect_timeout(Duration::from_secs(8))
-        .timeout(Duration::from_secs(180))
+        .timeout(Duration::from_secs(240))
         .build()
         .map_err(|e| format!("Não foi possível preparar a conexão HTTP: {e}"))?;
 
-    let ping = client
-        .get(format!("{base}{PING_PATH}"))
-        .send()
-        .await
-        .map_err(|e| format!(
-            "Não consegui localizar o SOS Finança no PC. Confirme o mesmo Wi-Fi, deixe 'Enviar para o celular' aberto no PC e tente novamente. Detalhe: {e}"
-        ))?;
+    let ping = client.get(format!("{base}{PING_PATH}")).send().await.map_err(|e| format!("Não encontrei o SOS Finança no PC. Confira o mesmo Wi-Fi e deixe a tela de sincronização aberta no PC. Detalhe: {e}"))?;
+    if !ping.status().is_success() { return Err(format!("O PC respondeu ao teste com status HTTP {}.", ping.status())); }
+    let protocol = ping.headers().get("x-sos-financa-protocol").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if protocol != PROTOCOL { return Err("O serviço encontrado no IP informado não é a sincronização V4 do SOS Finança.".into()); }
 
-    if !ping.status().is_success() {
-        return Err(format!("O PC respondeu ao teste de conexão com status HTTP {}.", ping.status()));
-    }
+    let app_snapshot = app.clone();
+    let local_bytes = tauri::async_runtime::spawn_blocking(move || -> Result<Vec<u8>, String> {
+        let path = db::create_sync_snapshot(&app_snapshot)?;
+        let bytes = fs::read(&path).map_err(|e| e.to_string())?;
+        let _ = fs::remove_file(path);
+        Ok(bytes)
+    }).await.map_err(|e| format!("Falha ao preparar banco local: {e}"))??;
+    if local_bytes.is_empty() || local_bytes.len() > MAX_SYNC_BYTES { return Err("O banco deste celular não pôde ser preparado para sincronização.".into()); }
+    let local_hash = hex(&Sha256::digest(&local_bytes));
 
-    let protocol = ping
-        .headers()
-        .get("x-sos-financa-protocol")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if protocol != PROTOCOL {
-        return Err("Encontrei um serviço no IP informado, mas ele não é a sincronização do SOS Finança.".into());
-    }
-
-    let response = client
-        .get(format!("{base}{SNAPSHOT_PATH}"))
-        .send()
-        .await
-        .map_err(|e| format!("O PC respondeu ao teste, mas não consegui baixar o banco: {e}"))?;
+    let response = client.post(format!("{base}{SYNC_PATH}"))
+        .header("X-SOS-Financa-SHA256", local_hash)
+        .header("Content-Type", "application/octet-stream")
+        .body(local_bytes)
+        .send().await
+        .map_err(|e| format!("A conexão com o PC abriu, mas a sincronização falhou: {e}"))?;
 
     if !response.status().is_success() {
-        return Err(format!("O PC não liberou o banco. Status HTTP {}.", response.status()));
+        let status = response.status();
+        let detail = response.text().await.unwrap_or_default();
+        return Err(format!("O PC recusou a sincronização ({status}). {detail}"));
     }
+    let response_protocol = response.headers().get("x-sos-financa-protocol").and_then(|v| v.to_str().ok()).unwrap_or("");
+    if response_protocol != PROTOCOL { return Err("A resposta recebida não pertence à sincronização V4 do SOS Finança.".into()); }
+    let expected_hash = response.headers().get("x-sos-financa-sha256").and_then(|v| v.to_str().ok()).ok_or_else(|| "O PC não enviou a assinatura de integridade do banco combinado.".to_string())?.to_lowercase();
+    let merged = response.bytes().await.map_err(|e| format!("Não consegui baixar o banco combinado: {e}"))?;
+    if merged.is_empty() || merged.len() > MAX_SYNC_BYTES { return Err("O banco combinado recebido é inválido.".into()); }
+    let actual_hash = hex(&Sha256::digest(merged.as_ref()));
+    if actual_hash != expected_hash { return Err("O banco combinado chegou incompleto. Nada foi aplicado no celular.".into()); }
 
-    let response_protocol = response
-        .headers()
-        .get("x-sos-financa-protocol")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("");
-
-    if response_protocol != PROTOCOL {
-        return Err("A resposta recebida não pertence ao SOS Finança.".into());
-    }
-
-    let expected_hash = response
-        .headers()
-        .get("x-sos-financa-sha256")
-        .and_then(|v| v.to_str().ok())
-        .ok_or_else(|| "O PC não enviou a assinatura de integridade do banco.".to_string())?
-        .to_lowercase();
-
-    if let Some(size) = response.content_length() {
-        if size == 0 || size > MAX_SYNC_BYTES as u64 {
-            return Err(format!("O tamanho informado pelo PC ({size} bytes) foi recusado."));
-        }
-    }
-
-    let body = response
-        .bytes()
-        .await
-        .map_err(|e| format!("A conexão HTTP foi aberta, mas o download do banco falhou: {e}"))?;
-
-    if body.is_empty() {
-        return Err("O PC enviou um arquivo vazio. Nada foi alterado no celular.".into());
-    }
-    if body.len() > MAX_SYNC_BYTES {
-        return Err("O banco recebido excede o limite de 128 MB. Nada foi alterado.".into());
-    }
-
-    let actual_hash = hex(&Sha256::digest(body.as_ref()));
-    if actual_hash != expected_hash {
-        return Err("O download terminou, mas a verificação de integridade falhou. Nada foi alterado no celular.".into());
-    }
-
-    let app_handle = app.clone();
-    let plain = body.to_vec();
-    let byte_count = plain.len();
-
-    let backup = tauri::async_runtime::spawn_blocking(move || {
-        db::import_sync_database(&app_handle, &plain)
-    })
-    .await
-    .map_err(|e| format!("Falha interna ao aplicar o banco recebido: {e}"))??;
+    let app_import = app.clone();
+    let data = merged.to_vec();
+    let bytes = data.len();
+    let backup = tauri::async_runtime::spawn_blocking(move || db::import_sync_database(&app_import, &data))
+        .await.map_err(|e| format!("Falha interna ao aplicar sincronização: {e}"))??;
 
     Ok(json!({
         "ok": true,
-        "bytes": byte_count,
+        "bytes": bytes,
         "backup": backup,
-        "message": "Dados do PC recebidos por HTTP local e aplicados com sucesso."
+        "bidirectional": true,
+        "message": "Sincronização concluída: alterações do PC e do celular foram combinadas nos dois aparelhos."
     }))
 }

@@ -33,6 +33,9 @@ jobs:
         run: node tests/storage.test.js
       - name: Testar estrutura SQLite
         run: python tests/schema_test.py
+      - name: Testar mesclagem bidirecional
+        run: python tests/sync_merge_test.py
+
       - name: Testar configuração de release
         run: python tests/release_test.py
       - name: Gerar instalador

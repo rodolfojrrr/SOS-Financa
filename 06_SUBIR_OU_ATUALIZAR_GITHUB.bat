@@ -32,8 +32,8 @@ git diff --cached --quiet
 if not errorlevel 1 goto push
 
 set "MSG="
-set /p "MSG=Mensagem do commit [SOS Financa V3.1.0 SYNC]: "
-if not defined MSG set "MSG=SOS Financa V3.1.0 - sincronizacao PC para celular"
+set /p "MSG=Mensagem do commit [SOS Financa V4.0.0]: "
+if not defined MSG set "MSG=SOS Financa V4.0.0 - organizacao final e sync bidirecional"
 git commit -m "%MSG%"
 if errorlevel 1 goto error
 

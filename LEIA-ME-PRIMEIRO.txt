@@ -1,34 +1,31 @@
-SOS FINANCA V3.0.0 FINAL - WINDOWS + ANDROID
+SOS FINANCA V4.0.0 - ORGANIZACAO + SINCRONIZACAO BIDIRECIONAL
+
+ANTES DE ATUALIZAR:
+1. Abra o SOS Financa que voce usa hoje.
+2. Faca um BACKUP do banco.
+3. Feche o aplicativo.
 
 PARA ATUALIZAR O GITHUB:
+1. Use o pacote SOS_Financa_Atualizacao_V4.0.0_GITHUB.zip.
+2. Extraia o ZIP.
+3. Execute ATUALIZAR_SOS_FINANCA_V4.bat.
+4. Aguarde Build Windows e Build Android.
 
-1. Faca um BACKUP no SOS Financa V2 instalado.
-2. Extraia este ZIP.
-3. Copie TODO o conteudo desta pasta para a pasta do seu repositorio SOS-Financa.
-4. Substitua os arquivos antigos.
-5. NAO apague a pasta oculta .git do seu repositorio.
-6. Execute 06_SUBIR_OU_ATUALIZAR_GITHUB.bat.
-7. No GitHub, abra Actions.
-8. Aguarde Build Windows e Build Android.
+NOVIDADES:
+- Cartoes como pastas personalizaveis.
+- Compras organizadas dentro de cada cartao.
+- Modo Editar.
+- Gerenciar direto no menu e por pastas.
+- Lixeira com restaurar/excluir permanentemente.
+- Alertas clicaveis.
+- Notificacoes financeiras.
+- Sync bidirecional PC <-> celular.
+- Exclusao permanente nao reaparece apos sincronizar.
 
-WINDOWS:
-- Artifact: SOS-Financa-Windows
-- Extraia e instale o EXE por cima da V2.
-
-ANDROID PARA TESTE:
-- Sem chave Release configurada, o GitHub gera SOS-Financa-Android-TESTE.
-- Nao coloque dados reais nessa build de teste.
-
-ANDROID DEFINITIVO:
-- Execute 08_CRIAR_CHAVE_ANDROID.bat.
-- Adicione no GitHub os Secrets descritos no README.
-- Rode Build Android novamente.
-- Baixe SOS-Financa-Android-Release.
-- Guarde a chave JKS e a senha; elas serao necessarias nas atualizacoes futuras.
-
-DOCUMENTACAO COMPLETA:
+DOCUMENTACAO:
 - README.md
-- docs\ANDROID_V3.md
-- docs\COMO_ATUALIZAR_V3.md
+- docs\COMO_ATUALIZAR_V4.md
+- docs\ORGANIZACAO_V4.md
+- docs\SINCRONIZACAO_V4.md
+- docs\RELATORIO_QA_V4.0.0.md
 - docs\DADOS_PARA_TESTE.md
-- docs\RELATORIO_QA_V3.0.0.md

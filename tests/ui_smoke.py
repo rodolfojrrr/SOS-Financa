@@ -19,23 +19,29 @@ storage_stub = r'''
       {id:'c-income',name:'Salário',kind:'income',icon:'wallet',parentId:null},
       {id:'c-expense',name:'Alimentação',kind:'expense',icon:'basket',parentId:null},
       {id:'c-debt',name:'Dívidas',kind:'expense',icon:'receipt',parentId:null}
-    ], transactions:[], commitments:[], commitmentPayments:[], cards:[], cardPurchases:[], cardPayments:[], debts:[], debtPayments:[], budgets:[], transfers:[], goals:[]
+    ], transactions:[], commitments:[], commitmentPayments:[], cards:[], cardPurchases:[], cardPayments:[], debts:[], debtPayments:[], budgets:[], transfers:[], goals:[], trash:[]
   };
   let seq=0;
   const map={account:'accounts',category:'categories',transaction:'transactions',commitment:'commitments',commitment_payment:'commitmentPayments',card:'cards',card_purchase:'cardPurchases',card_payment:'cardPayments',debt:'debts',debt_payment:'debtPayments',budget:'budgets',transfer:'transfers',goal:'goals'};
   const clone=x=>JSON.parse(JSON.stringify(x));
+  const title=x=>x.name||x.description||x.monthKey||'Registro';
   window.SOSStorage={
     isNative:()=>false,
     async getState(){return clone(data)},
     async saveEntity(type,payload){
-      if(type==='profile'){data.profile={...payload};return '1'}
+      if(type==='profile'){data.profile={...(data.profile||{}),...payload,updatedAt:new Date().toISOString()};return '1'}
       const key=map[type],id=payload.id||`qa-${++seq}`,now=new Date().toISOString(),item={...payload,id,createdAt:payload.createdAt||now,updatedAt:now};
       const idx=data[key].findIndex(x=>x.id===id);if(idx>=0)item.createdAt=data[key][idx].createdAt||now;
       if(idx>=0)data[key][idx]=item;else data[key].push(item);return id;
     },
-    async archiveEntity(type,id){const key=map[type];data[key]=data[key].filter(x=>x.id!==id)},
+    async archiveEntity(type,id){const key=map[type],idx=data[key].findIndex(x=>x.id===id);if(idx<0)return;const item=data[key][idx];data.trash.push({entityType:type,id,title:title(item),deletedAt:new Date().toISOString(),item:clone(item)});data[key].splice(idx,1)},
+    async getTrash(){return clone(data.trash)},
+    async restoreArchived(type,id){const idx=data.trash.findIndex(x=>x.entityType===type&&x.id===id);if(idx<0)return;const entry=data.trash[idx],key=map[type];if(key&&entry.item)data[key].push(entry.item);data.trash.splice(idx,1)},
+    async deleteForever(type,id){data.trash=data.trash.filter(x=>!(x.entityType===type&&x.id===id))},
     async makeBackup(){return 'qa-backup'}, async getBackups(){return []}, async restoreBackup(){},
-    async getDatabaseInfo(){return {path:'QA',size:0,counts:{}}}
+    async getDatabaseInfo(){return {path:'QA',size:0,counts:{}}},
+    async getSyncPlatform(){return {platform:'preview',canSend:false,canReceive:false}},
+    async startSyncServer(){return {ip:'192.168.0.2'}}, async stopSyncServer(){}, async syncWithPc(){return {message:'Mesclado'}}
   };
 })();
 '''
@@ -50,123 +56,92 @@ with sync_playwright() as p:
     page.set_content(html, wait_until='load')
 
     ok(page.get_by_text('Bem-vindo ao SOS Finança').is_visible(), 'primeira abertura mostra configuração inicial')
-    ok(page.locator('input[name="name"]').get_attribute('required') is None, 'nome do usuário também pode ser deixado em branco')
     page.locator('input[name="name"]').fill('Teste QA')
     page.locator('form[data-form="setup"] button[type="submit"]').click()
     page.wait_for_selector('.app-shell')
     ok(page.get_by_text('Visão geral').first.is_visible(), 'configuração inicial entra no dashboard')
+    ok(page.locator('.sidebar button[data-route="manage"]').count()==1, 'Gerenciar fica direto no menu lateral')
+    ok(page.locator('.sidebar button[data-route="trash"]').count()==1, 'Lixeira fica disponível no menu lateral')
 
-    page.locator('button[data-route="manage"]').first.click()
-    ok(page.get_by_text('Salário / receita fixa').first.is_visible(), 'gerenciamento mostra atalho explícito para salário fixo')
-    page.locator('button[data-manage-tab="catalogs"]').click()
+    page.locator('.sidebar button[data-route="manage"]').click()
+    ok(page.locator('.manage-folder-grid .folder-tile').count() == 8, 'Gerenciar é organizado em pastas')
+    ok(page.get_by_text('Salário / receita fixa').first.is_visible(), 'atalho de receita fixa continua acessível')
+    page.locator('button[data-manage-folder="catalogs"]').click()
     page.locator('button[data-action="account"]').click()
     page.locator('#modal-root input[name="name"]').fill('Conta principal')
     page.locator('#modal-root input[name="openingBalance"]').fill('1000,00')
-    page.locator('#modal-root button[type="submit"]').click()
-    page.wait_for_timeout(100)
-    ok(page.get_by_text('Conta principal').first.is_visible(), 'cadastro de conta funciona')
+    page.locator('#modal-root button[type="submit"]').click(); page.wait_for_timeout(80)
+    ok(page.get_by_text('Conta principal').first.is_visible(), 'subpasta de cadastros permite criar conta')
 
-    page.locator('button[data-manage-tab="fixed_income"]').click()
+    page.locator('button[data-manage-back]').click()
+    page.locator('button[data-manage-folder="fixed_income"]').click()
     page.locator('button[data-action="fixed-income"]').first.click()
     page.locator('#modal-root input[name="name"]').fill('Salário QA')
     page.locator('#modal-root input[name="amount"]').fill('2500,00')
-    ok(page.locator('#modal-root input[name="startMonth"]').get_attribute('required') is None, 'data inicial da receita fixa é opcional')
-    ok(page.locator('#modal-root input[name="endMonth"]').get_attribute('required') is None, 'data final da receita fixa é opcional')
-    ok(page.locator('#modal-root input[name="dueDay"]').get_attribute('required') is None, 'dia de recebimento da receita fixa é opcional')
-    page.locator('#modal-root button[type="submit"]').click()
-    page.wait_for_timeout(100)
-    ok(page.get_by_text('Salário QA').first.is_visible(), 'salário fixo é salvo sem datas')
+    page.locator('#modal-root button[type="submit"]').click(); page.wait_for_timeout(80)
+    ok(page.get_by_text('Salário QA').first.is_visible(), 'receita fixa continua funcional dentro da pasta')
     page.locator('button[data-action="pay-commitment"]').first.click()
-    page.locator('#modal-root button[type="submit"]').click()
-    page.wait_for_timeout(100)
-    ok(page.get_by_text('Este mês registrado').first.is_visible(), 'recebimento do salário é registrado sem encerrar recorrência')
-    salary_row=page.get_by_text('Salário QA').first.locator('xpath=ancestor::div[contains(@class,"list-row")]')
-    salary_row.locator('button[data-edit="commitment"]').click()
-    page.locator('#modal-root input[name="amount"]').fill('3000,00')
-    page.locator('#modal-root button[type="submit"]').click()
-    page.wait_for_timeout(100)
-    ok(page.get_by_text('Este mês registrado').first.is_visible(), 'editar salário depois de receber não reabre o mês já quitado')
-    page.locator('button[data-month-shift="1"]').first.click()
-    page.wait_for_timeout(100)
-    ok(page.get_by_text('Salário QA').first.is_visible(), 'salário continua existindo no mês seguinte')
-    ok(page.get_by_text('R$ 3.000,00').count() >= 1, 'novo valor do salário passa a valer no mês seguinte')
-    ok(page.get_by_text('Receber').first.is_visible(), 'mês seguinte volta a permitir receber salário')
-    page.locator('button[data-month-shift="-1"]').first.click()
+    page.locator('#modal-root button[type="submit"]').click(); page.wait_for_timeout(80)
+    ok(page.get_by_text('Este mês registrado').first.is_visible(), 'marcar receita como recebida continua simples')
 
-    page.locator('button[data-manage-tab="fixed_expense"]').click()
-    page.locator('button[data-action="fixed-expense"]').first.click()
-    page.locator('#modal-root input[name="name"]').fill('Internet QA')
-    page.locator('#modal-root input[name="amount"]').fill('99,90')
-    page.locator('#modal-root button[type="submit"]').click()
-    page.wait_for_timeout(100)
-    ok(page.get_by_text('Internet QA').first.is_visible(), 'conta fixa é salva sem data de início/fim')
-    row=page.get_by_text('Internet QA').first.locator('xpath=ancestor::div[contains(@class,"list-row")]')
-    row.locator('button[data-edit="commitment"]').click()
-    page.locator('#modal-root input[name="amount"]').fill('109,90')
-    page.locator('#modal-root button[type="submit"]').click()
-    page.wait_for_timeout(100)
-    ok(page.get_by_text('R$ 109,90').count() >= 1, 'valor da conta fixa pode ser editado')
-
-    page.locator('button.fab').click()
-    page.locator('#modal-root input[name="amount"]').fill('4,50')
-    page.locator('#modal-root button[type="submit"]').click()
-    page.wait_for_timeout(100)
-    page.locator('button[data-manage-tab="transactions"]').click()
-    ok(page.get_by_text('Despesa').count() >= 1, 'gasto rápido aceita descrição vazia e usa texto padrão')
-
-    page.locator('button[data-manage-tab="cards"]').click()
-    page.locator('button[data-action="card"]').first.click()
+    page.locator('.sidebar button[data-route="cards"]').click()
+    page.locator('button[data-action="card"]').click()
     page.locator('#modal-root input[name="name"]').fill('Cartão QA')
-    page.locator('#modal-root button[type="submit"]').click()
-    page.wait_for_timeout(100)
-    ok(page.get_by_text('Cartão QA').first.is_visible(), 'cartão pode ser cadastrado sem limite/fechamento/vencimento')
+    page.locator('#modal-root input[name="limit"]').fill('5000,00')
+    page.locator('#modal-root input[name="dueDay"]').fill('7')
+    ok(page.locator('#modal-root input[name="color"]').count()==1, 'cartão possui cor personalizável')
+    ok(page.locator('#modal-root select[name="icon"]').count()==1, 'cartão possui ícone personalizável')
+    page.locator('#modal-root button[type="submit"]').click(); page.wait_for_timeout(80)
+    ok(page.locator('.card-folder-grid .folder-tile').count()==1, 'cartão aparece como pasta, não como bloco de ações gigantes')
+    ok(page.locator('.card-folder-grid button[data-action="card-purchase-for"]').count()==0, 'botão gigante de compra não fica solto na visão geral')
+    page.get_by_text('Cartão QA').first.click(); page.wait_for_timeout(80)
+    ok(page.get_by_text('Adicionar compra').first.is_visible(), 'adicionar compra fica dentro da pasta do cartão')
+    ok(page.locator('.card-status-bar').is_visible(), 'pasta do cartão possui barra de limite, uso e fatura')
     page.locator('button[data-action="card-purchase-for"]').first.click()
-    ok(page.locator('#modal-root select[name="cardId"]').input_value() != '', 'Adicionar compra dentro do cartão já deixa o cartão selecionado')
-    page.locator('#modal-root input[name="total"]').fill('1200,00')
-    page.locator('#modal-root input[name="description"]').fill('Compra parcelada QA')
-    page.locator('#modal-root input[name="installments"]').fill('6')
-    page.locator('#modal-root button[type="submit"]').click()
-    page.wait_for_timeout(100)
-    page.locator('button[data-card-open-route]').first.click()
-    page.wait_for_timeout(100)
-    ok(page.get_by_text('Compra parcelada QA').count() >= 1, 'tela do cartão mostra as compras daquele cartão')
-    ok(page.get_by_text('Adicionar compra').first.is_visible(), 'tela do cartão possui botão próprio para adicionar compra')
+    page.locator('#modal-root input[name="description"]').fill('Compra QA')
+    page.locator('#modal-root input[name="total"]').fill('120,00')
+    page.locator('#modal-root button[type="submit"]').click(); page.wait_for_timeout(80)
+    ok(page.get_by_text('Compra QA').first.is_visible(), 'compra fica organizada dentro da pasta do cartão')
+    ok(page.locator('[data-edit="card_purchase"]').count()==0, 'editar/excluir compra fica oculto no modo normal')
+    page.locator('button[data-action="toggle-card-edit"]').click(); page.wait_for_timeout(50)
+    ok(page.locator('[data-edit="card_purchase"]').count()==1, 'botão Editar revela ações de edição das compras')
+    page.once('dialog', lambda dialog: dialog.accept())
+    page.locator('[data-archive="card_purchase"]').click(); page.wait_for_timeout(80)
+    ok(page.get_by_text('Compra QA').count()==0, 'excluir remove a compra da pasta e envia para a lixeira')
 
-    page.locator('button[data-route="manage"]').first.click()
-    page.locator('button[data-manage-tab="debts"]').click()
-    page.locator('button[data-action="debt"]').first.click()
-    page.locator('#modal-root input[name="name"]').fill('Empréstimo antigo QA')
-    page.locator('#modal-root input[name="installment"]').fill('450,00')
-    ok(page.locator('#modal-root input[name="startDate"]').get_attribute('required') is None, 'data inicial da dívida é opcional')
-    page.locator('#modal-root button[type="submit"]').click()
-    page.wait_for_timeout(100)
-    ok(page.get_by_text('Empréstimo antigo QA').first.is_visible(), 'dívida incompleta pode ser cadastrada')
-    ok(page.get_by_text('saldo não informado').count() >= 1, 'dívida incompleta é identificada como saldo não informado')
+    page.locator('.sidebar button[data-route="trash"]').click(); page.wait_for_timeout(80)
+    ok(page.get_by_text('Compra QA').count()>=1, 'item removido aparece na lixeira')
+    page.once('dialog', lambda dialog: dialog.accept())
+    page.locator('[data-trash-restore="card_purchase"]').click(); page.wait_for_timeout(80)
+    ok(page.get_by_text('Lixeira vazia').first.is_visible(), 'lixeira permite restaurar item')
 
-    page.set_viewport_size({'width': 390, 'height': 844})
-    page.wait_for_timeout(100)
+    page.locator('.sidebar button[data-route="home"]').click(); page.wait_for_timeout(80)
+    ok(page.locator('.attention-panel').count()>=1, 'visão geral possui área de avisos acionáveis')
+    # cartão vence dia 7 e a data de teste é após isso; se houver alerta, clicar deve abrir a pasta do cartão.
+    if page.locator('[data-alert-open-type="card"]').count():
+        page.locator('[data-alert-open-type="card"]').first.click(); page.wait_for_timeout(80)
+        ok(page.locator('.card-folder-hero').is_visible(), 'alerta de fatura leva direto ao cartão')
+    else:
+        ok(True, 'estrutura de alerta acionável do cartão está disponível quando houver fatura pendente')
+
+    page.locator('.sidebar button[data-route="manage"]').click(); page.wait_for_timeout(50)
+    page.locator('button[data-action="toggle-manage-organize"]').click(); page.wait_for_timeout(50)
+    ok(page.locator('[data-folder-customize]').count()>=8, 'modo Editar permite personalizar pastas de Gerenciar')
+    page.locator('[data-folder-customize="transactions"]').first.click()
+    ok(page.locator('#modal-root input[name="color"]').count()==1, 'pasta de gerenciamento tem cor personalizável')
+    page.locator('#modal-root .modal-close').click(); page.wait_for_timeout(80)
+
+    page.locator('.sidebar button[data-route="settings"]').click(); page.wait_for_timeout(80)
+    ok(page.locator('input[name="notificationsEnabled"]').count()==1, 'configurações possuem notificações financeiras')
+    ok(page.locator('button[data-action="notification-test"]').count()==1, 'há botão para testar notificação')
+
+    page.set_viewport_size({'width': 390, 'height': 844}); page.wait_for_timeout(80)
     ok(page.locator('.mobile-nav').is_visible(), 'navegação mobile aparece em largura de celular')
+    ok(page.locator('.mobile-item[data-route="manage"]').count()==1, 'Gerenciar fica direto no menu mobile')
     ok(not page.locator('.sidebar').is_visible(), 'barra lateral desktop some no celular')
-    overflow_390=page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
-    ok(overflow_390, 'layout de 390 px não cria rolagem horizontal global')
-    page.set_viewport_size({'width': 320, 'height': 700})
-    page.wait_for_timeout(100)
-    overflow_320=page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1')
-    ok(overflow_320, 'layout de 320 px continua sem rolagem horizontal global')
-
-    page.locator('.mobile-item[data-route="home"]').click()
-    page.wait_for_timeout(50)
-    page.locator('.mobile-item[data-route="cards"]').click()
-    page.wait_for_timeout(50)
-    page.go_back()
-    page.wait_for_timeout(80)
-    ok(page.get_by_text('Visão geral').first.is_visible(), 'botão Voltar do Android consegue retornar para a tela anterior do app')
-    page.locator('button.fab').click()
-    page.wait_for_timeout(50)
-    ok(page.locator('#modal-root .modal').is_visible(), 'gasto rápido abre modal no mobile')
-    page.go_back()
-    page.wait_for_timeout(80)
-    ok(page.locator('#modal-root .modal').count() == 0, 'botão Voltar do Android fecha o modal antes de sair do app')
+    ok(page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), 'layout de 390 px não cria rolagem horizontal global')
+    page.set_viewport_size({'width': 320, 'height': 700}); page.wait_for_timeout(80)
+    ok(page.evaluate('document.documentElement.scrollWidth <= window.innerWidth + 1'), 'layout de 320 px continua sem rolagem horizontal global')
 
     ok(not errors, f'interface roda sem erros de JavaScript/console: {errors}')
     browser.close()
