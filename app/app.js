@@ -85,7 +85,7 @@
   function shell(content, title, subtitle='') {
     const overdueCount = F.dueBuckets(ui.state, F.monthKey(new Date())).overdue.length;
     return `<div class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" data-mobile-drawer><button class="mobile-drawer-close" type="button" data-mobile-menu-close aria-label="Fechar menu">${icon('close')}</button>
         <div class="brand"><div class="brand-mark">${icon('logo')}</div><div><strong>SOS Finança</strong><small>Seu dinheiro, sob controle</small></div></div>
         <div class="nav-section">CONSULTAR</div>
         ${navItem('home','Início','home',overdueCount || '')}
@@ -100,9 +100,8 @@
         <div class="sidebar-spacer"></div>
         ${navItem('settings','Configurações','settings')}
         <div class="sidebar-user"><div class="avatar">${e((ui.state.profile?.name || 'U').charAt(0).toUpperCase())}</div><div><strong>${e(ui.state.profile?.name || 'Usuário')}</strong><span>${ui.state.profile?.usageMode === 'household' ? 'Gestão da casa' : 'Finanças pessoais'}</span></div></div>
-      </aside>
-      <main class="main">
-        <header class="topbar">
+      </aside><button class="mobile-drawer-backdrop" type="button" data-mobile-menu-close data-mobile-menu-backdrop aria-label="Fechar menu"></button><main class="main">
+        <header class="topbar"><button class="mobile-menu-btn" type="button" data-mobile-menu-toggle aria-label="Abrir menu">${icon('menu')}</button>
           <div class="page-heading"><h1>${e(title)}</h1><p>${e(subtitle)}</p></div>
           <div class="top-actions">
             <div class="month-picker"><button data-month-shift="-1" aria-label="Mês anterior">${icon('arrowLeft')}</button><span>${e(F.monthLabel(ui.month))}</span><button data-month-shift="1" aria-label="Próximo mês">${icon('arrowRight')}</button></div>
@@ -396,7 +395,7 @@
   function shell(content, title, subtitle='') {
     const overdueCount = F.dueBuckets(ui.state, F.monthKey(new Date())).overdue.length;
     return `<div class="app-shell">
-      <aside class="sidebar">
+      <aside class="sidebar" data-mobile-drawer><button class="mobile-drawer-close" type="button" data-mobile-menu-close aria-label="Fechar menu">${icon('close')}</button>
         <div class="brand"><div class="brand-mark">${icon('logo')}</div><div><strong>SOS Finança</strong><small>Seu dinheiro, sob controle</small></div></div>
         <div class="nav-section">CONSULTAR</div>
         ${navItem('home','Início','home',overdueCount || '')}
@@ -412,9 +411,8 @@
         <div class="sidebar-spacer"></div>
         ${navItem('settings','Configurações','settings')}
         <div class="sidebar-user"><div class="avatar">${e((ui.state.profile?.name || 'U').charAt(0).toUpperCase())}</div><div><strong>${e(ui.state.profile?.name || 'Usuário')}</strong><span>${ui.state.profile?.usageMode === 'household' ? 'Gestão da casa' : 'Finanças pessoais'}</span></div></div>
-      </aside>
-      <main class="main">
-        <header class="topbar">
+      </aside><button class="mobile-drawer-backdrop" type="button" data-mobile-menu-close data-mobile-menu-backdrop aria-label="Fechar menu"></button><main class="main">
+        <header class="topbar"><button class="mobile-menu-btn" type="button" data-mobile-menu-toggle aria-label="Abrir menu">${icon('menu')}</button>
           <div class="page-heading"><h1>${e(title)}</h1><p>${e(subtitle)}</p></div>
           <div class="top-actions">
             <div class="month-picker"><button data-month-shift="-1" aria-label="Mês anterior">${icon('arrowLeft')}</button><span>${e(F.monthLabel(ui.month))}</span><button data-month-shift="1" aria-label="Próximo mês">${icon('arrowRight')}</button></div>
@@ -640,6 +638,9 @@
   function getEntity(type,id){const map={account:'accounts',category:'categories',transaction:'transactions',commitment:'commitments',card:'cards',card_purchase:'cardPurchases',debt:'debts',budget:'budgets',goal:'goals'};return (ui.state[map[type]]||[]).find(x=>x.id===id)}
 
   root.addEventListener('click',async ev=>{
+    const menuToggle=ev.target.closest('[data-mobile-menu-toggle]');
+    if(menuToggle){root.querySelector('.app-shell')?.classList.toggle('mobile-menu-open');return}
+    if(ev.target.closest('[data-mobile-menu-close]')){root.querySelector('.app-shell')?.classList.remove('mobile-menu-open');return}
     const route=ev.target.closest('[data-route]');if(route){ui.route=route.dataset.route;ui.cardManageId=null;ui.cardEditMode=false;ui.manageFolder=null;ui.manageEditMode=false;await renderApp();pushHistory(false);return}
     const shift=ev.target.closest('[data-month-shift]');if(shift){ui.month=F.addMonths(ui.month,Number(shift.dataset.monthShift));await renderApp();return}
     const mt=ev.target.closest('[data-manage-tab]');if(mt){ui.manageTab=mt.dataset.manageTab;ui.manageFolder=mt.dataset.manageTab;await renderApp();return}
