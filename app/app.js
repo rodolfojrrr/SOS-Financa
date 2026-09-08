@@ -90,7 +90,7 @@
         <div class="nav-section">CONSULTAR</div>
         ${navItem('home','Início','home',overdueCount || '')}
         ${navItem('month','Mês','calendar')}
-        ${navItem('accounts','Contas','wallet')}
+        ${navItem('accounts','Fixos','calendar')}
         ${navItem('cards','Cartões','card')}
         ${navItem('debts','Dívidas','receipt')}
         ${navItem('budget','Orçamento','target')}
@@ -205,12 +205,69 @@
   }
   function compositionRow(label,value,total){return `<div class="budget-row"><div class="budget-meta"><strong>${e(label)}</strong><span>${F.money(value)}</span></div><div class="progress"><span style="width:${pct(value,total)}%"></span></div></div>`}
 
+
+  function fixedFolderTile(kind){
+    const st=ui.state,key=ui.month,def=manageFolderDef(kind),income=kind==='income'||kind==='fixed_income';
+    const actualKind=kind==='fixed_income'?'income':kind==='fixed_expense'?'expense':kind;
+    const list=(st.commitments||[]).filter(c=>c.kind===actualKind);
+    const active=list.filter(c=>c.active!==false);
+    const total=sum(active,c=>F.commitmentExpectedAmount(st,c,key));
+    const pending=active.filter(c=>F.commitmentPaid(st,c,key)<F.commitmentExpectedAmount(st,c,key)).length;
+    return `<div class="folder-tile fixed-folder-tile" style="--folder-color:${def.color}">
+      <button class="folder-open fixed-folder-open" data-manage-folder="${e(def.key)}">
+        <span class="folder-tab"></span>
+        <span class="folder-icon">${icon(def.icon)}</span>
+        <span class="folder-copy"><small>${income?'Entradas mensais':'Saídas mensais'}</small><strong>${e(def.label)}</strong><span>${e(def.desc)}</span></span>
+        ${icon('chevronRight','folder-chevron')}
+        <span class="folder-mini">
+          <span>Ativos <b>${active.length}</b></span>
+          <span>${income?'Previsto':'A pagar'} <b>${F.money(total)}</b></span>
+          <span>Pendentes <b>${pending}</b></span>
+        </span>
+      </button>
+      ${ui.manageEditMode?`<div class="folder-editbar"><button class="soft-btn btn-sm" data-folder-customize="${e(def.key)}">${icon('palette')} Personalizar pasta</button></div>`:''}
+    </div>`;
+  }
+
+  function fixedCommitmentContent(kind){
+    const st=ui.state,key=ui.month,income=kind==='income',list=(st.commitments||[]).filter(c=>c.kind===kind);
+    const payments=(st.commitmentPayments||[]).filter(p=>F.byId(st,'commitments',p.commitmentId)?.kind===kind).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+    const def=manageFolderDef(income?'fixed_income':'fixed_expense');
+    const singular=income?'receita fixa':'conta fixa';
+    const emptyText=income?'Cadastre salário, pensão, aluguel recebido ou qualquer entrada que se repete.':'Cadastre energia, internet, aluguel, mensalidade ou qualquer conta que se repete.';
+    const cards=list.map(c=>{
+      const expected=F.commitmentExpectedAmount(st,c,key),paid=F.commitmentPaid(st,c,key),done=expected>0&&paid>=expected;
+      const remaining=Math.max(0,expected-paid);
+      const monthPayments=payments.filter(p=>p.commitmentId===c.id&&p.monthKey===key);
+      const lastPayment=monthPayments.slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''))[0];
+      const due=num(c.dueDay)?`${income?'Receber':'Vence'} dia ${c.dueDay}`:(income?'Sem dia fixo':'Sem vencimento fixo');
+      const period=!c.startMonth&&!c.endMonth?'Repete todos os meses':`${c.startMonth?'Desde '+F.monthLabel(c.startMonth):'Ativo'}${c.endMonth?' · até '+F.monthLabel(c.endMonth):' · sem data final'}`;
+      return `<div class="fixed-item-card ${done?'is-done':''} ${c.active===false?'is-paused':''}" style="--fixed-color:${def.color}">
+        <div class="fixed-item-icon">${icon(income?'wallet':'calendar')}</div>
+        <div class="fixed-item-main"><strong>${e(c.name||singular)}</strong><span>${e(due)} · ${e(period)}${c.active===false?' · Pausado':''}</span></div>
+        <div class="fixed-item-value"><span>${income?'Valor previsto':'Valor do mês'}</span><strong>${F.money(expected)}</strong>${paid>0&&!done?`<small>${F.money(remaining)} restante</small>`:''}</div>
+        <div class="fixed-item-action">
+          ${c.active===false?'<span class="tag">Pausado</span>':done?`<span class="fixed-paid-badge">${icon('check')}<span>${income?'Recebido':'Pago'}${lastPayment?.date?` · ${F.dateLabel(lastPayment.date)}`:''}</span></span>`:`<button class="soft-btn btn-sm fixed-pay-btn" data-action="pay-commitment" data-id="${e(c.id)}">${icon('check')} ${income?'Marcar recebido':'Marcar como pago'}</button>`}
+        </div>
+        ${ui.manageEditMode?`<div class="fixed-edit-actions"><button class="action-btn" data-edit="commitment" data-id="${e(c.id)}" title="Editar">${icon('edit')}</button><button class="action-btn danger" data-archive="commitment" data-id="${e(c.id)}" title="Mover para lixeira">${icon('trash')}</button></div>`:''}
+      </div>`;
+    }).join('');
+
+    const history=ui.manageEditMode?`<section class="panel fixed-history-panel"><div class="panel-head"><div><h3>${income?'Recebimentos':'Pagamentos'} registrados</h3><small>Visível somente no modo Editar</small></div></div>${payments.length?`<div class="list">${payments.slice(0,16).map(p=>{const c=F.byId(st,'commitments',p.commitmentId);return `<div class="list-row"><div class="row-icon">${icon('check')}</div><div class="row-main"><strong>${e(c?.name||singular)}</strong><span>${e(F.monthLabel(p.monthKey))} · ${p.date?F.dateLabel(p.date):'Data não informada'}</span></div><div class="actions"><span class="row-amount ${income?'income':''}">${F.money(p.amountCents)}</span><button class="action-btn danger" data-archive="commitment_payment" data-id="${e(p.id)}" title="Estornar registro">${icon('trash')}</button></div></div>`}).join('')}</div>`:empty('Nenhum registro ainda',income?'Os recebimentos registrados aparecerão aqui durante a edição.':'Os pagamentos registrados aparecerão aqui durante a edição.','check')}</section>`:'';
+
+    return `<div class="fixed-folder-toolbar"><div><h3>${e(def.label)}</h3><p>${income?'Acompanhe o que entra todo mês e marque quando receber.':'Veja o que precisa pagar no mês e marque cada conta quando concluir.'}</p></div><div class="section-actions">${ui.manageEditMode?`<button class="primary-btn btn-sm" data-action="${income?'fixed-income':'fixed-expense'}">${icon('plus')} Adicionar ${singular}</button><button class="secondary-btn btn-sm" data-folder-customize="${e(def.key)}">${icon('palette')} Personalizar</button>`:''}<button class="secondary-btn btn-sm ${ui.manageEditMode?'active-edit':''}" data-action="toggle-manage-organize">${icon('edit')} ${ui.manageEditMode?'Concluir edição':'Editar'}</button></div></div>
+      <section class="panel fixed-list-panel">${list.length?`<div class="fixed-items">${cards}</div>`:empty(`Nenhuma ${singular}`,`${emptyText} Ative o modo Editar para adicionar.`,income?'wallet':'calendar')}</section>${history}`;
+  }
+
   function accountsPage(){
-    const st=ui.state, accounts=st.accounts||[];
-    return shell(`<div class="section-title"><div><h2>Minhas contas</h2><p>Saldo consolidado e onde o dinheiro está.</p></div></div>
-      <div class="hero-grid">${metric('Saldo consolidado',F.money(F.currentBalance(st)),'Soma de todas as contas',F.currentBalance(st)>=0?'good':'danger','wallet')}${metric('Contas cadastradas',String(accounts.length),'Bancos, carteira e dinheiro','','bank')}${metric('Entradas no mês',F.money(F.monthSummary(st,ui.month).incomeRealized),'Valores já recebidos','good','plus')}${metric('Saídas no mês',F.money(F.monthSummary(st,ui.month).expensesRealized),'Valores já pagos','','receipt')}</div>
-      <div class="grid-equal"><section class="panel"><div class="panel-head"><h3>Saldos</h3><small>Atualizados pelos registros</small></div>${accounts.length?`<div class="list">${accounts.map(a=>`<div class="account-card"><div class="account-icon">${icon('bank')}</div><div class="account-info"><strong>${e(a.name)}</strong><span>${e([a.institution,a.accountType].filter(Boolean).join(' · '))}</span></div><div class="account-balance">${F.money(F.accountBalance(st,a.id))}</div></div>`).join('<div style="height:8px"></div>')}</div>`:empty('Nenhuma conta cadastrada','Vá em Gerenciar → Cadastros para criar sua primeira conta.','bank')}</section>
-      <section class="panel"><div class="panel-head"><h3>Transferências recentes</h3><small>Não contam como receita ou despesa</small></div>${(st.transfers||[]).length?`<div class="list">${(st.transfers||[]).slice(0,8).map(t=>`<div class="list-row"><div class="row-icon">${icon('transfer')}</div><div class="row-main"><strong>${e(F.accountName(st,t.fromAccountId))} → ${e(F.accountName(st,t.toAccountId))}</strong><span>${F.dateLabel(t.date)}${t.notes?' · '+e(t.notes):''}</span></div><div class="row-amount">${F.money(t.amountCents)}</div></div>`).join('')}</div>`:empty('Sem transferências','Transferências entre suas contas aparecem aqui.','transfer')}</section></div>`, 'Contas', 'Dinheiro disponível sem misturar com cartão');
+    if(['fixed_income','fixed_expense'].includes(ui.manageFolder)){
+      const def=manageFolderDef(ui.manageFolder),kind=ui.manageFolder==='fixed_income'?'income':'expense';
+      return shell(`<div class="folder-breadcrumb"><button class="secondary-btn btn-sm" data-manage-back>${icon('arrowLeft')} Fixos</button><span>${icon(def.icon)} ${e(def.label)}</span></div>${fixedCommitmentContent(kind)}`, def.label, kind==='income'?'Receitas que se repetem todos os meses':'Contas que se repetem todos os meses');
+    }
+    const incomeDef=manageFolderDef('fixed_income'),expenseDef=manageFolderDef('fixed_expense');
+    return shell(`<div class="section-title v4-title fixed-hub-title"><div><h2>Receitas e despesas fixas</h2><p>Duas pastas para tudo que se repete. Consulte normalmente e entre em Editar só quando precisar alterar algo.</p></div><button class="secondary-btn btn-sm ${ui.manageEditMode?'active-edit':''}" data-action="toggle-manage-organize">${icon('palette')} ${ui.manageEditMode?'Concluir edição':'Editar pastas'}</button></div>
+      <div class="fixed-hub-summary"><div><span>${icon('wallet')} Receitas previstas</span><strong>${F.money(sum((ui.state.commitments||[]).filter(c=>c.kind==='income'&&c.active!==false),c=>F.commitmentExpectedAmount(ui.state,c,ui.month)))}</strong></div><div><span>${icon('calendar')} Contas previstas</span><strong>${F.money(sum((ui.state.commitments||[]).filter(c=>c.kind==='expense'&&c.active!==false),c=>F.commitmentExpectedAmount(ui.state,c,ui.month)))}</strong></div></div>
+      <div class="folder-grid fixed-folder-grid">${fixedFolderTile('fixed_income')}${fixedFolderTile('fixed_expense')}</div>`, 'Receitas e despesas fixas', 'O que entra e sai todo mês, organizado em duas pastas');
   }
 
   function cardsPage(){
@@ -264,7 +321,7 @@
     const tabs=[['transactions','Movimentações'],['fixed_income','Receitas fixas'],['fixed_expense','Contas fixas'],['cards','Cartões'],['debts','Dívidas'],['catalogs','Cadastros'],['budget','Planejamento']];
     return shell(`<div class="section-title"><div><h2>Gerenciar dados</h2><p>Escolha o que quer fazer; o app pede somente o indispensável.</p></div></div>${manageShortcuts()}<div class="manage-tabs">${tabs.map(([k,l])=>`<button class="pill ${ui.manageTab===k?'active':''}" data-manage-tab="${k}">${l}</button>`).join('')}</div>${manageTabContent()}`, 'Gerenciar', 'Cadastrar e corrigir sem poluir as telas de consulta');
   }
-  function manageShortcuts(){return `<div class="quick-manage-grid"><button class="quick-manage" data-action="quick"><span>${icon('receipt')}</span><strong>Gasto rápido</strong><small>PIX, débito ou dinheiro</small></button><button class="quick-manage" data-action="fixed-income"><span>${icon('wallet')}</span><strong>Salário / receita fixa</strong><small>Repete todos os meses</small></button><button class="quick-manage" data-action="fixed-expense"><span>${icon('calendar')}</span><strong>Conta fixa</strong><small>Sem exigir data de início</small></button><button class="quick-manage" data-action="card-purchase"><span>${icon('card')}</span><strong>Compra no cartão</strong><small>Escolha o cartão e as parcelas</small></button><button class="quick-manage" data-action="debt"><span>${icon('receipt')}</span><strong>Nova dívida</strong><small>Cadastre só o que souber</small></button></div>`}
+  function manageShortcuts(){return `<div class="quick-manage-grid"><button class="quick-manage" data-action="quick"><span>${icon('receipt')}</span><strong>Gasto rápido</strong><small>PIX, débito ou dinheiro</small></button><button class="quick-manage" data-route="accounts"><span>${icon('calendar')}</span><strong>Receitas e despesas fixas</strong><small>Abrir as duas pastas de valores recorrentes</small></button><button class="quick-manage" data-action="card-purchase"><span>${icon('card')}</span><strong>Compra no cartão</strong><small>Escolha o cartão e as parcelas</small></button><button class="quick-manage" data-action="debt"><span>${icon('receipt')}</span><strong>Nova dívida</strong><small>Cadastre só o que souber</small></button></div>`}
   function manageTabContent(){return ({transactions:manageTransactions,fixed_income:()=>manageCommitments('income'),fixed_expense:()=>manageCommitments('expense'),cards:manageCards,debts:manageDebts,catalogs:manageCatalogs,budget:manageBudget})[ui.manageTab]();}
   function manageTransactions(){const st=ui.state,tx=(st.transactions||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||'')),transfers=(st.transfers||[]).slice().sort((a,b)=>(b.date||'').localeCompare(a.date||''));return `<div class="grid-equal"><section class="panel"><div class="panel-head"><div><h3>Entradas e saídas avulsas</h3><small>Para o que não se repete todo mês e não é compra no cartão</small></div><button class="primary-btn btn-sm" data-action="transaction">${icon('plus')} Novo</button></div>${tx.length?table(['Data','Descrição','Categoria','Conta','Valor',''],tx.map(t=>[t.date?F.dateLabel(t.date):'—',e(t.description||'Sem descrição'),e(F.categoryName(st,t.categoryId)),e(F.accountName(st,t.accountId)),`<span class="${t.kind==='income'?'row-amount income':'row-amount'}">${t.kind==='income'?'+':'-'} ${F.money(t.amountCents)}</span>`,actions('transaction',t.id)])):empty('Nenhuma movimentação','Use “Novo” ou o botão + para registrar.','receipt')}</section><section class="panel"><div class="panel-head"><div><h3>Transferências</h3><small>Movem dinheiro sem virar gasto ou renda</small></div><button class="secondary-btn btn-sm" data-action="transfer">${icon('transfer')} Transferir</button></div>${transfers.length?`<div class="list">${transfers.slice(0,12).map(t=>`<div class="list-row"><div class="row-icon">${icon('transfer')}</div><div class="row-main"><strong>${e(F.accountName(st,t.fromAccountId))} → ${e(F.accountName(st,t.toAccountId))}</strong><span>${t.date?F.dateLabel(t.date):'Data não informada'}${t.notes?' · '+e(t.notes):''}</span></div><div class="actions"><span class="row-amount">${F.money(t.amountCents)}</span><button class="action-btn danger" data-archive="transfer" data-id="${t.id}" title="Estornar transferência">${icon('trash')}</button></div></div>`).join('')}</div>`:empty('Sem transferências','Quando mover dinheiro entre duas contas, registre aqui.','transfer')}</section></div>`}
   function manageCommitments(kind){
@@ -300,7 +357,7 @@
     modalRoot.innerHTML=`<div class="modal-backdrop"><div class="modal" role="dialog" aria-modal="true"><div class="modal-head"><div><h2>Compartilhar com o celular</h2><p>Deixe esta janela aberta. O compartilhamento encerra após o download ou em cerca de 3 minutos.</p></div><button class="modal-close" type="button" data-close-modal>${icon('close')}</button></div><div class="modal-body"><div class="alert-strip">${icon('refresh')}<div><strong>HTTP local</strong><span>O SOS Finança usa uma transferência HTTP comum dentro do seu Wi-Fi, sem chave temporária e sem protocolo TCP próprio.</span></div></div><div class="sync-pair-grid"><div class="info-box full"><span>IP do PC</span><strong class="sync-code">${e(session.ip)}</strong></div></div><div class="alert-strip warn">${icon('info')}<div><strong>No celular</strong><span>Abra Configurações → Sincronização, digite somente o IP acima e toque em Baixar do PC.</span></div></div></div><div class="modal-foot"><button class="secondary-btn" type="button" data-action="sync-stop">Cancelar</button><button class="primary-btn" type="button" data-close-modal>Deixar compartilhando</button></div></div></div>`;
   }
 
-  function morePage(){return shell(`<div class="grid-2"><section class="panel"><div class="panel-head"><h3>Mais opções</h3></div><div class="list">${[['accounts','Contas','wallet'],['budget','Orçamento','target'],['reports','Relatórios','chart'],['manage','Gerenciar dados','edit'],['settings','Configurações','settings']].map(([r,l,ic])=>`<button class="list-row" style="border-top:0;border-left:0;border-right:0;background:transparent;width:100%;text-align:left" data-route="${r}"><div class="row-icon">${icon(ic)}</div><div class="row-main"><strong>${l}</strong><span>Abrir seção</span></div>${icon('chevronRight')}</button>`).join('')}</div></section></div>`, 'Mais', 'Acesse as outras áreas do SOS Finança');}
+  function morePage(){return shell(`<div class="grid-2"><section class="panel"><div class="panel-head"><h3>Mais opções</h3></div><div class="list">${[['accounts','Receitas e despesas fixas','calendar'],['budget','Orçamento','target'],['reports','Relatórios','chart'],['manage','Gerenciar dados','edit'],['settings','Configurações','settings']].map(([r,l,ic])=>`<button class="list-row" style="border-top:0;border-left:0;border-right:0;background:transparent;width:100%;text-align:left" data-route="${r}"><div class="row-icon">${icon(ic)}</div><div class="row-main"><strong>${l}</strong><span>Abrir seção</span></div>${icon('chevronRight')}</button>`).join('')}</div></section></div>`, 'Mais', 'Acesse as outras áreas do SOS Finança');}
 
   async function renderApp(){
     if(!ui.state) await reload(false);
@@ -311,7 +368,7 @@
     root.innerHTML=(pages[ui.route]||homePage)();
   }
 
-  // ===== V4.0 — organização por pastas, lixeira, alertas acionáveis e sync bidirecional =====
+  // ===== V4.1 — fixos em pastas, edição limpa, lixeira, alertas e sync bidirecional =====
   const MANAGE_FOLDERS = [
     {key:'transactions',label:'Movimentações',desc:'Gastos, receitas e transferências',icon:'receipt',color:'#18765a'},
     {key:'fixed_income',label:'Receitas fixas',desc:'Salário e entradas recorrentes',icon:'wallet',color:'#287f69'},
@@ -344,7 +401,7 @@
         <div class="nav-section">CONSULTAR</div>
         ${navItem('home','Início','home',overdueCount || '')}
         ${navItem('month','Mês','calendar')}
-        ${navItem('accounts','Contas','wallet')}
+        ${navItem('accounts','Fixos','calendar')}
         ${navItem('cards','Cartões','card')}
         ${navItem('debts','Dívidas','receipt')}
         ${navItem('budget','Orçamento','target')}
@@ -382,7 +439,7 @@
   function attentionRows(st){
     const due=F.dueBuckets(st,F.monthKey(new Date()));
     const items=[...due.overdue.map(x=>({...x,bucket:'overdue'})),...due.next7.map(x=>({...x,bucket:'next7'}))].slice(0,6);
-    if(!items.length) return `<div class="alert-strip">${icon('check')}<div><strong>Nenhuma pendência urgente</strong><span>Os avisos acionáveis aparecerão aqui quando houver algo para pagar.</span></div></div>`;
+    if(!items.length) return `<div class="alert-strip home-attention-empty">${icon('check')}<div><strong>Nenhuma pendência urgente</strong><span>Os avisos acionáveis aparecerão aqui quando houver algo para pagar.</span></div></div>`;
     return `<section class="panel attention-panel"><div class="panel-head"><div><h3>Precisa da sua atenção</h3><small>Clique no aviso para ir direto à conta</small></div><button class="link-btn" data-route="month">Ver mês</button></div><div class="attention-list">${items.map(x=>{
       const remain=Math.max(0,num(x.amountCents)-num(x.paidCents));
       return `<button class="attention-item ${x.bucket==='overdue'?'danger':'warn'}" data-alert-open-type="${e(x.type)}" data-alert-open-id="${e(x.id)}" data-alert-month="${e(F.monthKey(x.dueDate))}"><span class="attention-icon">${icon(x.type==='card'?'card':x.type==='debt'?'receipt':'calendar')}</span><span class="attention-main"><strong>${e(x.label)}</strong><small>${x.bucket==='overdue'?'Atrasado':'Vence em breve'} · ${e(F.dateLabel(x.dueDate))}</small></span><b>${F.money(remain||x.amountCents)}</b>${icon('chevronRight')}</button>`;
@@ -592,7 +649,7 @@
     if(ev.target.closest('[data-manage-back]')){ui.manageFolder=null;await renderApp();pushHistory(false);return}
     if(ev.target.closest('[data-card-back]')){ui.cardManageId=null;ui.cardEditMode=false;await renderApp();pushHistory(false);return}
     const customize=ev.target.closest('[data-folder-customize]');if(customize){openFolderPref(customize.dataset.folderCustomize);return}
-    const alertOpen=ev.target.closest('[data-alert-open-type]');if(alertOpen){const type=alertOpen.dataset.alertOpenType,id=alertOpen.dataset.alertOpenId,month=alertOpen.dataset.alertMonth;if(month)ui.month=month;if(type==='card'){ui.route='cards';ui.cardManageId=id;ui.cardEditMode=false}else if(type==='debt'){ui.route='debts'}else if(type==='commitment'){const c=F.byId(ui.state,'commitments',id);ui.route='manage';ui.manageFolder=c?.kind==='income'?'fixed_income':'fixed_expense'}await renderApp();pushHistory(false);return}
+    const alertOpen=ev.target.closest('[data-alert-open-type]');if(alertOpen){const type=alertOpen.dataset.alertOpenType,id=alertOpen.dataset.alertOpenId,month=alertOpen.dataset.alertMonth;if(month)ui.month=month;if(type==='card'){ui.route='cards';ui.cardManageId=id;ui.cardEditMode=false}else if(type==='debt'){ui.route='debts'}else if(type==='commitment'){const c=F.byId(ui.state,'commitments',id);ui.route='accounts';ui.manageFolder=c?.kind==='income'?'fixed_income':'fixed_expense';ui.manageEditMode=false}await renderApp();pushHistory(false);return}
     const trashRestore=ev.target.closest('[data-trash-restore]');if(trashRestore){if(confirm('Restaurar este item da lixeira?')){try{await S.restoreArchived(trashRestore.dataset.trashRestore,trashRestore.dataset.id);await reload();toast('Item restaurado')}catch(err){toast(err.message,'danger')}}return}
     const trashDelete=ev.target.closest('[data-trash-delete]');if(trashDelete){if(confirm('Excluir PERMANENTEMENTE este item? Esta ação não pode ser desfeita.')){try{await S.deleteForever(trashDelete.dataset.trashDelete,trashDelete.dataset.id);await reload();toast('Item excluído permanentemente')}catch(err){toast(err.message,'danger')}}return}
     if(ev.target.closest('[data-theme-toggle]')){const next=document.documentElement.dataset.theme==='dark'?'light':'dark';await S.saveEntity('profile',{...ui.state.profile,theme:next});await reload();return}

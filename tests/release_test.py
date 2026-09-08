@@ -31,8 +31,8 @@ lib_rs = (root / 'src-tauri' / 'src' / 'lib.rs').read_text(encoding='utf-8')
 styles = (root / 'app' / 'styles.css').read_text(encoding='utf-8')
 gitignore = (root / '.gitignore').read_text(encoding='utf-8')
 
-ok(main_conf['version'] == '4.0.0', 'configuração Tauri está na versão 4.0.0')
-ok(re.search(r'^version = "4\.0\.0"$', cargo, re.M) is not None, 'pacote Rust está na versão 4.0.0')
+ok(main_conf['version'] == '4.1.0', 'configuração Tauri está na versão 4.1.0')
+ok(re.search(r'^version = "4\.1\.0"$', cargo, re.M) is not None, 'pacote Rust está na versão 4.1.0')
 ok(main_conf['identifier'] == 'com.sosfinanca.app', 'identificador foi preservado para atualizar instalações existentes')
 ok(win_conf['bundle']['targets'] == ['nsis'], 'Windows gera instalador NSIS')
 ok(android_conf['bundle']['android']['minSdkVersion'] == 24, 'Android mantém compatibilidade mínima API 24')
@@ -50,6 +50,11 @@ ok("data-action=\"toggle-card-edit\"" in app_js and "data-edit=\"card_purchase\"
 ok('manage-folder-grid' in app_js and 'MANAGE_FOLDERS' in app_js, 'Gerenciar usa estrutura de pastas')
 ok("mobileItem('manage','Gerenciar','folder')" in app_js, 'Gerenciar fica direto na navegação mobile')
 ok('folder_prefs' in db_rs and 'sort_order' in db_rs and 'ensure_column(&conn, "cards", "color"' in db_rs, 'personalização de pastas/cartões é persistida no SQLite')
+ok("navItem('accounts','Fixos','calendar')" in app_js, 'antiga aba Contas foi substituída por Fixos')
+ok('fixed-folder-grid' in app_js and 'fixed_income' in app_js and 'fixed_expense' in app_js, 'Fixos possui duas pastas organizadas')
+ok('fixed-item-card' in app_js and 'fixed-paid-badge' in app_js, 'valores fixos têm cartões contornados e indicador de pagamento')
+ok('fixed-history-panel' in app_js and 'ui.manageEditMode' in app_js, 'histórico de pagamentos fica condicionado ao modo Editar')
+ok('home-attention-empty' in app_js and '.home-attention-empty{margin-top:14px}' in styles, 'aviso sem pendências possui espaçamento superior')
 
 # Lixeira
 ok('get_trash' in lib_rs and 'restore_archived' in lib_rs and 'delete_forever' in lib_rs, 'backend expõe lixeira, restauração e exclusão permanente')

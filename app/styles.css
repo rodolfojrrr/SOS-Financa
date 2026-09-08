@@ -80,3 +80,68 @@
 @media(max-width:520px){.folder-grid,.folder-grid.compact{grid-template-columns:1fr}.folder-open{min-height:135px}.card-folder-grid .folder-open{min-height:165px}.card-status-bar{grid-template-columns:1fr 1fr}.purchase-row{grid-template-columns:48px minmax(0,1fr) auto}.attention-item>b{font-size:9px}.folder-breadcrumb{position:sticky;top:calc(65px + env(safe-area-inset-top));z-index:7;background:var(--bg);padding:4px 0 7px}.manage-folder-head{padding:14px}.card-folder-title h2{font-size:16px}}
 /* Ícones de ação nunca dominam o botão */
 .primary-btn>svg,.secondary-btn>svg,.danger-btn>svg,.soft-btn>svg,.link-btn>svg{width:17px;height:17px;flex:0 0 17px}.btn-sm>svg{width:15px;height:15px;flex-basis:15px}
+
+
+/* =========================================================
+   V4.1 — receitas e despesas fixas organizadas em pastas
+   ========================================================= */
+.home-attention-empty{margin-top:14px}
+.fixed-hub-title{margin-bottom:16px}
+.fixed-hub-summary{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:0 0 14px}
+.fixed-hub-summary>div{border:1px solid var(--line);background:var(--surface);border-radius:16px;padding:13px 15px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:var(--shadow-sm)}
+.fixed-hub-summary span{display:flex;align-items:center;gap:7px;font-size:10px;color:var(--muted);font-weight:750}
+.fixed-hub-summary span svg{width:17px;height:17px;color:var(--accent)}
+.fixed-hub-summary strong{font-size:15px}
+.fixed-folder-grid{grid-template-columns:repeat(2,minmax(0,1fr));max-width:1050px}
+.fixed-folder-open{min-height:190px}
+.fixed-folder-open .folder-mini{grid-template-columns:repeat(3,minmax(0,1fr))}
+.fixed-folder-open .folder-mini>span{flex-direction:column;align-items:flex-start}
+.fixed-folder-toolbar{display:flex;align-items:center;justify-content:space-between;gap:16px;border:1px solid var(--line);background:var(--surface);border-radius:20px;padding:16px 18px;margin-bottom:12px;box-shadow:var(--shadow-sm)}
+.fixed-folder-toolbar h3{font-size:16px;margin:0}
+.fixed-folder-toolbar p{font-size:10px;color:var(--muted);margin:3px 0 0}
+.fixed-list-panel{padding:12px 18px}
+.fixed-items{display:flex;flex-direction:column;gap:9px}
+.fixed-item-card{display:grid;grid-template-columns:auto minmax(0,1fr) minmax(125px,auto) minmax(150px,auto);align-items:center;gap:13px;padding:14px 15px;border:1px solid color-mix(in srgb,var(--fixed-color) 28%,var(--line));border-radius:17px;background:linear-gradient(135deg,color-mix(in srgb,var(--fixed-color) 7%,var(--surface)),var(--surface));position:relative}
+.fixed-item-card.is-done{border-color:color-mix(in srgb,var(--good) 36%,var(--line));background:linear-gradient(135deg,color-mix(in srgb,var(--good) 8%,var(--surface)),var(--surface))}
+.fixed-item-card.is-paused{opacity:.72}
+.fixed-item-icon{width:42px;height:42px;border-radius:13px;background:color-mix(in srgb,var(--fixed-color) 15%,var(--surface-2));display:grid;place-items:center;color:var(--fixed-color)}
+.fixed-item-icon svg{width:19px;height:19px}
+.fixed-item-main{min-width:0}
+.fixed-item-main strong{font-size:12px;display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.fixed-item-main span{font-size:9px;color:var(--muted);display:block;margin-top:4px;line-height:1.4}
+.fixed-item-value{text-align:right;min-width:0}
+.fixed-item-value>span,.fixed-item-value>small{display:block;font-size:8px;color:var(--muted)}
+.fixed-item-value>strong{display:block;font-size:14px;margin:3px 0;white-space:nowrap}
+.fixed-item-action{display:flex;justify-content:flex-end;min-width:0}
+.fixed-pay-btn{white-space:nowrap}
+.fixed-paid-badge{display:inline-flex;align-items:center;gap:6px;color:var(--good);background:var(--accent-soft);border:1px solid color-mix(in srgb,var(--good) 28%,var(--line));padding:7px 10px;border-radius:11px;font-size:9px;font-weight:800;white-space:nowrap}
+.fixed-paid-badge svg{width:15px;height:15px}
+.fixed-edit-actions{display:flex;gap:5px;position:absolute;right:9px;top:7px;transform:translateY(-50%);background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:3px;box-shadow:var(--shadow-sm)}
+.fixed-edit-actions .action-btn{width:29px;height:29px}
+.fixed-history-panel{margin-top:12px;border-style:dashed}
+.fixed-history-panel .list-row{padding-left:3px;padding-right:3px}
+
+@media(max-width:900px){
+  .fixed-hub-summary{grid-template-columns:1fr 1fr}
+  .fixed-folder-grid{grid-template-columns:1fr 1fr}
+  .fixed-folder-open .folder-mini{grid-template-columns:1fr}
+  .fixed-folder-toolbar{align-items:flex-start;flex-direction:column}
+  .fixed-folder-toolbar .section-actions{width:100%;display:grid;grid-template-columns:1fr 1fr}
+  .fixed-folder-toolbar .section-actions button:last-child:nth-child(odd){grid-column:1/-1}
+  .fixed-item-card{grid-template-columns:auto minmax(0,1fr) auto;gap:10px;padding:13px}
+  .fixed-item-value{grid-column:2/3;text-align:left}
+  .fixed-item-action{grid-column:3;grid-row:1/3}
+  .fixed-edit-actions{position:static;transform:none;grid-column:2/-1;justify-content:flex-end;background:transparent;border:0;padding:0;box-shadow:none}
+}
+@media(max-width:520px){
+  .fixed-hub-summary{grid-template-columns:1fr}
+  .fixed-folder-grid{grid-template-columns:1fr}
+  .fixed-folder-open{min-height:155px}
+  .fixed-item-card{grid-template-columns:auto minmax(0,1fr);align-items:start}
+  .fixed-item-value{grid-column:2;text-align:left}
+  .fixed-item-action{grid-column:1/-1;grid-row:auto;justify-content:stretch}
+  .fixed-item-action>*{width:100%;justify-content:center}
+  .fixed-edit-actions{grid-column:1/-1}
+  .fixed-folder-toolbar .section-actions{grid-template-columns:1fr}
+  .fixed-folder-toolbar .section-actions button{grid-column:auto!important}
+}

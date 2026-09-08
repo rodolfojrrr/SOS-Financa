@@ -1,4 +1,4 @@
-SOS FINANCA V4.0.0 - ORGANIZACAO + SINCRONIZACAO BIDIRECIONAL
+SOS FINANCA V4.1.0 - ORGANIZACAO + SINCRONIZACAO BIDIRECIONAL
 
 ANTES DE ATUALIZAR:
 1. Abra o SOS Financa que voce usa hoje.
@@ -29,3 +29,9 @@ DOCUMENTACAO:
 - docs\SINCRONIZACAO_V4.md
 - docs\RELATORIO_QA_V4.0.0.md
 - docs\DADOS_PARA_TESTE.md
+
+V4.1 - FIXOS ORGANIZADOS
+- Aba Contas virou Fixos.
+- Receitas fixas e Contas fixas em duas pastas personalizaveis.
+- Historico e exclusoes so aparecem no modo Editar.
+- Marcar como pago/recebido fica direto na visualizacao.

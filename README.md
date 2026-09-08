@@ -1,8 +1,22 @@
-# SOS Finança — V4.0.0
+# SOS Finança — V4.1.0
 
 Aplicativo financeiro **local e individual** para Windows e Android.
 
 A V4 reorganiza o SOS Finança em torno de uma regra simples: **nada solto**. Cartões e áreas de gerenciamento funcionam como pastas; ações de edição ficam escondidas até o usuário pedir; alertas levam diretamente ao item que precisa de atenção; exclusões vão para a Lixeira; e a sincronização PC ↔ celular passa a combinar alterações dos dois aparelhos.
+
+
+## Novidades da V4.1
+
+- A antiga aba **Contas** foi substituída por **Fixos**.
+- A página principal se chama **Receitas e despesas fixas**.
+- Duas pastas personalizáveis: **Receitas fixas** e **Contas fixas**.
+- Visualização limpa: editar/excluir fica escondido até ativar **Editar**.
+- Cada conta fixa recebe um cartão contornado com valor, vencimento e status do mês.
+- **Marcar como pago/recebido** fica disponível diretamente no modo de visualização.
+- Após pagar/receber, aparece um indicador de conferido.
+- Histórico de pagamentos/recebimentos aparece somente durante a edição.
+- O aviso de “Nenhuma pendência urgente” ganhou espaçamento correto abaixo dos indicadores da Visão geral.
+- Alertas de valores fixos agora levam diretamente para a pasta correta.
 
 ## Principais novidades da V4
 
@@ -58,7 +72,7 @@ A porta local permanece fixa em `45454`. Não há chave temporária.
 
 A V4 usa o plugin nativo de notificações do Tauri e permite configurar lembretes financeiros. As notificações funcionam no aplicativo instalado e a permissão é solicitada quando necessário.
 
-## Atualização para V4
+## Atualização para V4.1
 
 Faça um backup dentro do SOS Finança antes de instalar os novos builds.
 
