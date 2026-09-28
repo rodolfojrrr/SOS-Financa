@@ -1,0 +1,86 @@
+mod db;
+mod sync;
+
+use serde_json::Value;
+use tauri::AppHandle;
+
+#[tauri::command]
+fn get_state(app: AppHandle) -> Result<Value, String> { db::state(&app) }
+
+#[tauri::command]
+fn save_entity(app: AppHandle, entity_type: String, payload: Value) -> Result<String, String> { db::save(&app, &entity_type, &payload) }
+
+#[tauri::command]
+fn archive_entity(app: AppHandle, entity_type: String, id: String) -> Result<(), String> { db::archive(&app, &entity_type, &id) }
+
+#[tauri::command]
+fn get_trash(app: AppHandle) -> Result<Vec<Value>, String> { db::trash(&app) }
+
+#[tauri::command]
+fn restore_archived(app: AppHandle, entity_type: String, id: String) -> Result<(), String> { db::restore_archived(&app, &entity_type, &id) }
+
+#[tauri::command]
+fn delete_forever(app: AppHandle, entity_type: String, id: String) -> Result<(), String> { db::delete_forever(&app, &entity_type, &id) }
+
+#[tauri::command]
+fn make_backup(app: AppHandle) -> Result<String, String> { db::create_backup(&app) }
+
+#[tauri::command]
+async fn export_database(app: AppHandle) -> Result<Value, String> {
+    tauri::async_runtime::spawn_blocking(move || db::export_database(&app))
+        .await
+        .map_err(|e| format!("Falha interna ao exportar o banco: {e}"))?
+}
+
+#[tauri::command]
+fn get_backups(app: AppHandle) -> Result<Vec<Value>, String> { db::list_backups(&app) }
+
+#[tauri::command]
+fn restore_backup(app: AppHandle, name: String) -> Result<(), String> { db::restore_backup(&app, &name) }
+
+#[tauri::command]
+fn get_database_info(app: AppHandle) -> Result<Value, String> { db::database_info(&app) }
+
+#[tauri::command]
+fn get_sync_platform() -> Value { sync::platform() }
+
+#[tauri::command]
+fn start_sync_server(app: AppHandle) -> Result<Value, String> { sync::start_server(&app) }
+
+#[tauri::command]
+fn stop_sync_server() -> Result<(), String> { sync::stop_server(); Ok(()) }
+
+#[tauri::command]
+async fn sync_with_pc(app: AppHandle, host: String) -> Result<Value, String> { sync::sync_with_pc(&app, &host).await }
+
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
+pub fn run() {
+    tauri::Builder::default()
+        .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            db::init(app.handle()).map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_state,
+            save_entity,
+            archive_entity,
+            get_trash,
+            restore_archived,
+            delete_forever,
+            make_backup,
+            export_database,
+            get_backups,
+            restore_backup,
+            get_database_info,
+            get_sync_platform,
+            start_sync_server,
+            stop_sync_server,
+            sync_with_pc
+        ])
+        .run(tauri::generate_context!())
+        .expect("erro ao iniciar o SOS Finança");
+}

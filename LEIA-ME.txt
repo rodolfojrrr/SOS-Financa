@@ -1,0 +1,12 @@
+SOS FINANCA V4.2.0
+
+Este arquivo substitui as instrucoes antigas da serie V3.
+
+COMECE POR AQUI:
+1. Leia LEIA-ME-PRIMEIRO.txt.
+2. Faca um backup no aplicativo que voce usa hoje.
+3. Extraia o ZIP inteiro.
+4. Execute 07_TESTAR_REGRAS.bat.
+5. Execute 06_SUBIR_OU_ATUALIZAR_GITHUB.bat para gerar os novos builds.
+
+Nao use os scripts ATUALIZAR_* da serie V3 para publicar esta versao.

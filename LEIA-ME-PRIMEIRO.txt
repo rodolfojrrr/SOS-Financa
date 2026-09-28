@@ -1,0 +1,45 @@
+SOS FINANCA V4.2.0 - CARTOES E EXPORTACAO CORRIGIDOS
+
+ANTES DE ATUALIZAR:
+1. Abra o SOS Financa que voce usa hoje.
+2. Faca um BACKUP do banco.
+3. Feche o aplicativo.
+
+PARA ATUALIZAR O GITHUB:
+1. Extraia este ZIP inteiro em uma pasta.
+2. Execute 07_TESTAR_REGRAS.bat.
+3. Execute 06_SUBIR_OU_ATUALIZAR_GITHUB.bat.
+4. Se for solicitado, cole a URL do seu repositorio do SOS Financa.
+5. Aguarde Build Windows e Build Android no GitHub Actions.
+
+NOVIDADES:
+- Primeira fatura confirmada no cadastro de cada compra.
+- Compra salva abre automaticamente no mes correto.
+- Compras encerradas saem da lista principal e ficam no historico.
+- Editar e excluir ficam visiveis em cada compra.
+- Pagamentos de fatura lancados errado podem ser excluidos.
+- Exportacao real do banco .db no Windows e Android.
+- Cartoes como pastas personalizaveis.
+- Compras organizadas dentro de cada cartao.
+- Modo Editar.
+- Gerenciar direto no menu e por pastas.
+- Lixeira com restaurar/excluir permanentemente.
+- Alertas clicaveis.
+- Notificacoes financeiras.
+- Sync bidirecional PC <-> celular.
+- Exclusao permanente nao reaparece apos sincronizar.
+
+DOCUMENTACAO:
+- README.md
+- docs\COMO_ATUALIZAR_V4.md
+- docs\ORGANIZACAO_V4.md
+- docs\SINCRONIZACAO_V4.md
+- docs\RELATORIO_QA_V4.0.0.md
+- docs\RELATORIO_QA_V4.2.0.md
+- docs\DADOS_PARA_TESTE.md
+
+V4.1 - FIXOS ORGANIZADOS
+- Aba Contas virou Fixos.
+- Receitas fixas e Contas fixas em duas pastas personalizaveis.
+- Historico e exclusoes so aparecem no modo Editar.
+- Marcar como pago/recebido fica direto na visualizacao.

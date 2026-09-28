@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capacidade padrão do SOS Finança",
+  "windows": [
+    "main"
+  ],
+  "permissions": [
+    "core:default",
+    "notification:default",
+    "dialog:default",
+    "fs:default",
+    "fs:allow-copy-file",
+    "fs:allow-stat"
+  ]
+}

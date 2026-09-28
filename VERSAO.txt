@@ -1,0 +1,2 @@
+4.2.0
+Correção das faturas, compras concluídas, exclusão e exportação do banco.
